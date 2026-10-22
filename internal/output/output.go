@@ -1,6 +1,6 @@
 // Package output writes the files a pinger publishes, byte-compatible with
-// Echolot's (design §7).  So far: pubring.mix, type2.list and their .meta
-// files.
+// Echolot's (design §7): pubring.mix, type2.list, mlist2.txt, mlist.txt
+// and their .meta files.
 //
 // Every file is written atomically, and no line may be longer than
 // MaxLineLen: yamn clients read these files with bufio.Scanner (64 KiB

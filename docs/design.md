@@ -538,11 +538,21 @@ D/yamn.yml:
   general: {loglevel: warn}
   files:   {pubring: D/pubring.mix, mlist2: D/mlist2.txt, pooldir: D/pool, secring: D/secring.mix,
             idlog: D/idlog, chunkdb: D/chunkdb}
-  urls:    {fetch: false}
+  urls:    {fetch: false, key_pinning: off}
   remailer: {address: pinger@pinger.example.org}
   stats:   {num_copies: 1, use_expired: false}
 yamn --config D/yamn.yml --dir D -m --stdout -c 1 --nodummy -l <addr1>[,<addr2>]
 ```
+
+Notes from yamn master (as of yamn #70/#71, 2026-10-22):
+- **`key_pinning: off`.** yamn pins keys by default since #70 (`urls.key_pinning: hold`): it holds a remailer's early or changed key and refuses to encrypt to it. Then pings to a quarantined key would never go out and proof of possession (§9.2) could never succeed. go-echolot's own key policy replaces pinning here.
+- **One key per ping run.** yamn keeps one key per address, the last one in `pubring.mix`. To ping a specific key (both keys during a rotation, or a quarantined one), `D/pubring.mix` holds just that key (plus the exit's for a chain), never the published keyring.
+- **Keys yamn won't use:** expired keys unless `stats.use_expired`; keys whose created date is in the future, always.
+- **No downloads:** `urls.fetch: false` (Y-49); with `urls.pingers` unset yamn reads only `files.pubring`.
+- **Random hops need stats:** `-l middle,*` fails ("cannot use random remailers without stats") unless `files.mlist2` holds stats; see question 14 for middleman pings.
+- **Headers:** the client keeps only what an exit passes on; `From`, `Reply-To`, `Date` and `Message-ID` are removed (Y-20, Y-47). The token goes in the `To` address and the data in the body.
+- **Exit status:** `yamn -m` exits 1 on errors such as an unknown or held remailer or a bad chain (Y-46). That is a local failure (`abort`, §5.3), not a lost ping.
+- **Own directory and config** (`--dir`, `--config`), so a remailer on the same host is unaffected (question 15).
 
 - Pass addresses in `-l`, not nicks. `Pubring.Get` resolves anything containing `@` by address (`Y:keymgr/public.go:139-165`), which avoids any nick ambiguity.
 - The output is an mboxrd stream (`Y:mbox.go:38-57`). Expect exactly one entry whose `To:` is hop 1.

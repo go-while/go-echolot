@@ -14,13 +14,15 @@ import (
 
 // The ping journal, pings.jsonl, has one JSON event per line (design §5.2):
 //
-//	{"ev":"out","id":7,"addr":"…","key":"…","wf":0,"sent":1792560000}
+//	{"ev":"out","id":7,"addr":"…","key":"…","wf":0,"sent":1792560000,"pub":1}
 //	{"ev":"done","id":7,"lat":1234,"rcv":1792561234}
 //	{"ev":"abort","id":7,"err":"smtp: …"}
 //	{"ev":"next","id":8}
 //
 // "next" is written first by Compact, so that ping IDs aren't reused
-// after the pings with the highest IDs expire.
+// after the pings with the highest IDs expire.  "pub":1 marks a ping that
+// counts in the stats: its key was published when it was sent (§13
+// question 18); decided then, so a later change of the key can't change it.
 
 // PingStatus is where a ping is.
 type PingStatus uint8
@@ -37,6 +39,7 @@ type Ping struct {
 	Addr     string
 	KeyID    string
 	WithFrom bool
+	Counted  bool      // counts in the stats (journal "pub")
 	Sent     time.Time // whole seconds
 	Status   PingStatus
 	Received time.Time // PingDone only
@@ -51,6 +54,7 @@ type event struct {
 	Key  string `json:"key,omitempty"`
 	WF   *int   `json:"wf,omitempty"`
 	Sent int64  `json:"sent,omitempty"`
+	Pub  int    `json:"pub,omitempty"`
 	Lat  *int64 `json:"lat,omitempty"`
 	Rcv  int64  `json:"rcv,omitempty"`
 	Err  string `json:"err,omitempty"`
@@ -61,7 +65,11 @@ func outEvent(p *Ping) event {
 	if p.WithFrom {
 		wf = 1
 	}
-	return event{Ev: "out", ID: p.ID, Addr: p.Addr, Key: p.KeyID, WF: &wf, Sent: p.Sent.Unix()}
+	ev := event{Ev: "out", ID: p.ID, Addr: p.Addr, Key: p.KeyID, WF: &wf, Sent: p.Sent.Unix()}
+	if p.Counted {
+		ev.Pub = 1
+	}
+	return ev
 }
 
 func doneEvent(p *Ping) event {
@@ -96,7 +104,8 @@ func (ps *pings) apply(ev event) error {
 		if p != nil {
 			return fmt.Errorf("ping %d sent twice", ev.ID)
 		}
-		ps.byID[ev.ID] = &Ping{ID: ev.ID, Addr: ev.Addr, KeyID: ev.Key, WithFrom: *ev.WF != 0, Sent: time.Unix(ev.Sent, 0).UTC()}
+		ps.byID[ev.ID] = &Ping{ID: ev.ID, Addr: ev.Addr, KeyID: ev.Key, WithFrom: *ev.WF != 0, Counted: ev.Pub == 1,
+			Sent: time.Unix(ev.Sent, 0).UTC()}
 		ps.nextID = max(ps.nextID, ev.ID+1)
 	case "done":
 		if ev.Lat == nil || ev.Rcv <= 0 {
