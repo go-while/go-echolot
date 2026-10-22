@@ -1,0 +1,14 @@
+
+Broken type-I remailer chains:
+
+
+Broken type-II remailer chains:
+(* echo)
+(alpha bravo)
+(bravo charlie)
+(delta charlie)
+(echo *)
+
+Last update: Wed 21 Oct 2026 08:45:45 GMT
+remailer  email address                        history  latency  uptime
+-----------------------------------------------------------------------

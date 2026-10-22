@@ -5,6 +5,11 @@
 #   3  the remailers of case 2, sort_by_latency on, empty broken sections
 #   4  random data (seed 4) with stats_days 7 and other weights
 #   5  no remailers at all
+#   chain1  chain pings: hand-made edge cases of the evaluation and the
+#           compression, with broken1 and broken2 files
+#   chain2  chain pings: random data (seed 2) on the remailers of case 1
+#   chain3  chain pings on but none sent, no files; compress_broken_chain
+#           alone on hand-made lists
 import json, random, sys
 
 NOW = 1792560000 + 12345  # a fixed instant
@@ -115,8 +120,148 @@ def edge_rems():
     return rems
 
 
+def chain_edge_case():
+    """Remailers with simple stats, and chain pings for each rule of
+    E:Stats.pm:557-622.  10 remailers count (hotel has no conf), so the
+    compression threshold is 5."""
+    rems = {}
+
+    def rem(nick, done=(), out=(), words="v2", caps=True, showit=None):
+        addr = nick + "@example.org"
+        r = {"nick": nick, "keys": {"%032x" % (0xc4a1 * (len(rems) + 1)): {"out": list(out), "done": [list(x) for x in done]}}}
+        if caps:
+            r["caps"] = '$remailer{"%s"} = "<%s> %s";' % (nick, addr, words)
+        if showit is not None:
+            r["showit"] = showit
+        rems[addr] = r
+
+    ok600 = [[at(1), 600], [at(2), 600], [at(3), 600]]  # reliability 1, latency 600
+    rem("alpha", ok600)
+    rem("bravo", ok600)
+    rem("charlie", [[at(1), 1200], [at(2), 1200]], words="middle v2")  # latency 1200
+    rem("delta", [[at(2), 600]], [at(2, 7200)])  # reliability exactly 0.5
+    rem("echo", out=[at(1), at(2)])  # reliability 0, no latency
+    rem("fox", ok600, showit=0)  # not listed publicly
+    rem("golf", ok600, words="testing v2")  # not listed publicly
+    rem("hotel", ok600, caps=False)  # not a row at all
+    rem("india", ok600)
+    rem("juliet", ok600)
+    rem("kilo", ok600)
+
+    pings = []
+
+    def ping(a, b, sent, lat=None):
+        pings.append([sent, a + "@example.org", b + "@example.org", lat])
+
+    def old(a, b, n, done=0):
+        """n pings a day or more old, the first done of them back."""
+        for i in range(n):
+            ping(a, b, at(2 + i % 5, 100 + 37 * i), 3000 if i < done else None)
+
+    old("alpha", "bravo", 3)            # exactly 3 out, none back: broken
+    old("bravo", "alpha", 2)            # 2 out: intensive care
+    old("alpha", "charlie", 1)          # 1 out: "only 1 sample"
+    old("charlie", "alpha", 2)          # grace (1200+600)*1.5 = 2700 s:
+    ping("charlie", "alpha", NOW - 2699)  # too young, not counted: 2 out
+    old("charlie", "bravo", 2)
+    ping("charlie", "bravo", NOW - 2700)  # just old enough: 3 out, broken
+    old("bravo", "charlie", 1, done=1)  # back: fine
+    old("alpha", "delta", 20, done=3)   # 3/20 = 0.15 = 0.3 * 1 * 0.5: broken
+    old("delta", "alpha", 20, done=4)   # 4/20 > 0.15: fine
+    old("bravo", "india", 10, done=3)   # 3/10 = 0.3 * 1 * 1: broken
+    old("india", "bravo", 10, done=4)   # fine
+    # The 10-day window keeps a ping sent exactly 10 days ago.
+    for t in (NOW - 864000, NOW - 864001, at(2), at(3)):
+        ping("delta", "bravo", t)       # 3 counted: broken
+    for t in (NOW - 864001, at(2), at(3)):
+        ping("delta", "charlie", t)     # 2 counted: intensive care
+    old("juliet", "alpha", 2)
+    ping("juliet", "alpha", NOW - 864001, 100)  # back, but outside the window
+    # A ping back counts, however young: 1/4.
+    old("india", "alpha", 3)
+    ping("india", "alpha", NOW - 60, 50)
+    # Remailers that aren't rows are ignored.
+    old("hotel", "alpha", 5)
+    old("alpha", "hotel", 5)
+    # Not public.
+    old("fox", "alpha", 3)
+    old("golf", "bravo", 3)
+    # echo is dead: 5 broken chains from it, (echo *) at the threshold 5.
+    for b in ("alpha", "bravo", "charlie", "delta", "india"):
+        old("echo", b, 3)
+    ping("echo", "juliet", NOW - 1)     # grace (0+600)*1.5: not counted
+    ping("echo", "kilo", NOW)
+    # kilo: 5 broken chains to it privately, 3 publicly.
+    for a in ("alpha", "bravo", "charlie", "fox", "golf"):
+        old(a, "kilo", 3)
+    # bravo ends up with 5 broken chains to it privately, 4 publicly.
+    return {"now": NOW, "rems": rems, "chainpings": pings,
+            "files": {"broken1": "(alpha zulu)\n(* bravo)\n",
+                      "broken2": "(juliet *)\n(* lima)\n\n(alpha bravo)\nnot a chain\n(kilo  x)\n"}}
+
+
+def chain_random_case(seed):
+    """The remailers of random_case(1); chain pings between every pair,
+    returned with probability rel(A) * rel(B), except for a few pairs that
+    lose (almost) everything."""
+    d = random_case(1)
+    random.seed(seed)
+    rels = {"alpha": 0.99, "bravo": 0.80, "charlie": 0.50, "delta": 1.0, "echo": 0.0, "foxtrot": 0.95}
+    lats = {"alpha": 600, "bravo": 3000, "charlie": 20000, "delta": 90, "echo": 0, "foxtrot": 400000}
+    nicks = sorted(rels)
+    bad = {("alpha", "bravo"), ("delta", "alpha"), ("bravo", "delta"), ("delta", "charlie")}
+    pings = []
+    for a in nicks:
+        for b in nicks:
+            if a == b or random.random() < 0.1:
+                continue
+            for _ in range(random.randint(0, 14)):
+                t = NOW - random.randint(0, 11 * DAY)
+                p = rels[a] * rels[b] * (0.05 if (a, b) in bad else 1)
+                lat = None
+                if random.random() < p:
+                    lat = sum(max(1, int(random.expovariate(1.0 / max(lats[x], 1)))) for x in (a, b))
+                    if t + lat >= NOW:
+                        lat = None
+                pings.append([t, a + "@example.org", b + "@example.org", lat])
+    d["chainpings"] = pings
+    return d
+
+
+def compress_cases():
+    """[num, list] for compress_broken_chain alone."""
+    return [
+        [4, ["(a b)", "(c b)"]],              # 2 >= 2: (* b)
+        [5, ["(a b)", "(c b)"]],              # 2 < 2.5: kept
+        [4, ["(* b)", "(a b)"]],              # (* b) counts 1 + 4
+        [2, ["(* b)", "(* c)"]],              # "*" as a left nick: (* *)
+        [1, ["(* *)"]],
+        [0, ["(a b)", "(c d)"]],              # threshold 0: everything
+        [0, []],
+        [3, ["(a b)", "(a b)", "(a c)"]],     # duplicates count once
+        [3, ["(a b)", "(c b)", "(a d)"]],
+        [10, ["((a b))", "x(a b)y", "(a b) (c d)", "(a\tb)", "(a\u000bb)", "(a  b)", "(a b", "", " ", "(a b)\r"]],
+        [10, ["(b a)", "(a b)", "(A b)", "(a *)", "(* a)"]],
+    ]
+
+
 def main():
-    case = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+    arg = sys.argv[1] if len(sys.argv) > 1 else "1"
+    if arg.startswith("chain"):
+        case = int(arg[5:])
+        if case == 1:
+            d = chain_edge_case()
+        elif case == 2:
+            d = chain_random_case(2)
+        elif case == 3:
+            d = random_case(1)
+            d["chainpings"] = []
+            d["compress"] = compress_cases()
+        else:
+            sys.exit("no case %s" % arg)
+        json.dump(d, sys.stdout, indent=1)
+        return
+    case = int(arg)
     if case == 1:
         d = random_case(1)
     elif case == 2:
