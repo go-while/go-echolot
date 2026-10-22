@@ -139,4 +139,28 @@ func TestYamnEndToEnd(t *testing.T) {
 	if !bytes.Contains(ml, []byte("\nexit1 ")) || !strings.Contains(string(ml), "100.0%") {
 		t.Errorf("mlist2.txt:\n%s\nlog:\n%s", ml, h.log)
 	}
+
+	// The HTML pages (phase 3): the remailer, its replies and its fromline
+	// from the real exit.
+	www := h.cfg.Paths.ResultsDir
+	for _, f := range []string{"index.html", "mlist2.html", "fromlines.html", "thesaurus/index.html", "echolot.css"} {
+		if _, err := os.Stat(filepath.Join(www, f)); err != nil {
+			t.Errorf("%s: %v", f, err)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(www, "mlist2.html")); !bytes.Contains(b, []byte("exit1")) {
+		t.Errorf("mlist2.html lacks exit1")
+	}
+	if txt, _ := filepath.Glob(filepath.Join(www, "thesaurus", "*.key.txt")); len(txt) != 1 {
+		t.Errorf("thesaurus replies: %v", txt)
+	}
+	var fl string
+	h.st.View(func(st *store.State) {
+		for _, f := range st.Fromlines[rem.addr] {
+			fl = f.From
+		}
+	})
+	if b, _ := os.ReadFile(filepath.Join(www, "fromlines.html")); fl == "" || !bytes.Contains(b, []byte("exit1")) {
+		t.Errorf("fromline %q; fromlines.html:\n%s", fl, b)
+	}
 }

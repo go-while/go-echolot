@@ -58,6 +58,8 @@ func bounded(s string) string {
 
 // Daemon is the running pinger: `go-echolot run`.
 type Daemon struct {
+	Version string // shown on the HTML pages
+
 	cfg      *config.Config
 	st       *store.Store
 	minter   *token.Minter

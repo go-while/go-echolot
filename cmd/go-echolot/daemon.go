@@ -125,6 +125,7 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	d.Version = versionString()
 	return d.Run(ctx, hup)
 }
 
@@ -246,6 +247,7 @@ func stateCmd(verb string) func(args []string, stdout, stderr io.Writer) error {
 			if err != nil {
 				return err
 			}
+			d.Version = versionString()
 			out = d.Command(context.Background(), c, now)
 		} else {
 			err := st.Update(func(s *store.State) error {

@@ -208,8 +208,13 @@ func (d *Daemon) BuildStats(at time.Time) {
 		counted          func(store.Ping) bool
 	}
 	var rems []rem
+	var htmlRems []output.Remailer
 	d.st.View(func(st *store.State) {
 		for _, r := range st.Remailers {
+			if r.Conf != nil {
+				htmlRems = append(htmlRems, output.Remailer{ID: r.ID, Nick: r.Conf.Nick, Address: r.Address,
+					Caps: r.Conf.Caps, ListIt: output.ListIt(r.ShowIt, r.Conf.Caps), Fromlines: maps.Clone(st.Fromlines[r.Address])})
+			}
 			if r.Conf == nil || len(r.Keys) == 0 {
 				continue
 			}
@@ -251,6 +256,20 @@ func (d *Daemon) BuildStats(at time.Time) {
 		if err := output.WriteStats(w.dir, w.rows, sec, at, d.cfg.Stats.SortByLatency, d.cfg.Compat.MetaFiles); err != nil {
 			d.log.Error("stats not written", "dir", w.dir, "err", err)
 		}
+	}
+	// The HTML pages, public only (§7.5), from the same rows.
+	replies, err := output.ReadReplies(filepath.Join(d.cfg.Paths.StateDir, thesaurusDir))
+	if err != nil {
+		d.log.Error("thesaurus", "err", err)
+	}
+	err = output.WriteHTML(d.cfg.Paths.ResultsDir, output.Pages{
+		Site:     output.Site{Name: d.cfg.Pinger.Sitename, Operator: d.cfg.Pinger.OperatorAddress, Version: d.Version},
+		Rows:     rows,
+		Sections: sec, SortByLatency: d.cfg.Stats.SortByLatency,
+		Remailers: htmlRems, Replies: replies, Meta: d.cfg.Compat.MetaFiles,
+	}, at)
+	if err != nil {
+		d.log.Error("HTML pages not written", "err", err)
 	}
 }
 
