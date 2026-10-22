@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -160,5 +162,44 @@ func TestFromlines(t *testing.T) {
 	})
 	if got := cleanFrom("a\x00bé" + strings.Repeat("x", 300)); strings.ContainsAny(got, "\x00é") || len(got) > maxFromLen+3 {
 		t.Errorf("cleanFrom: %q", got)
+	}
+}
+
+// TestBrokenChains: chain pings that don't come back make a broken chain
+// in mlist2.txt; the sections are always printed with chain pings on.
+func TestBrokenChains(t *testing.T) {
+	h := newHarness(t, false)
+	h.d.encoder = plainEncoder{}
+	for _, nick := range []string{"victor", "yamn4"} {
+		k := replies.ParseKey([]byte(liveKey(t, nick))).Keys[0]
+		h.command("add", k.Address, nick)
+		h.st.Update(func(st *store.State) error {
+			r := st.Remailers[k.Address]
+			r.Conf = &store.Conf{Nick: nick, Caps: fmt.Sprintf(`$remailer{"%s"} = "<%s> v2";`, nick, k.Address)}
+			r.Keys = map[string]*store.Key{k.KeyID: {KeyID: k.KeyID, Nick: nick, Address: k.Address, Version: k.Version,
+				Caps: k.Caps, Created: k.Created, Expires: k.Expires, PK: store.PublicKey(k.PK), LastSeen: h.clock.Now(),
+				State: store.KeyStateActive}}
+			return nil
+		})
+	}
+	h.clock.Advance(12 * time.Hour) // keys of 2026-10-17..31 valid; e2eStart is 10-22 00:00
+	for range 3 {
+		h.command("sendchainpings", "yamn@virebent.art:yamn4@mixmin.net")
+		h.clock.Advance(24 * time.Hour)
+	}
+	if got := len(h.st.ChainPings(time.Time{})); got != 3 {
+		t.Fatalf("%d chain pings journalled\n%s", got, h.log)
+	}
+	if n := len(h.mailer.take()); n != 3 {
+		t.Errorf("%d chain pings sent", n)
+	}
+	h.command("buildstats")
+	ml, _ := os.ReadFile(filepath.Join(h.cfg.Paths.PrivateResultsDir, "mlist2.txt"))
+	if !strings.Contains(string(ml), "Broken type-I remailer chains:\n") || !strings.Contains(string(ml), "Broken type-II remailer chains:\n(") {
+		t.Errorf("mlist2.txt:\n%s", ml)
+	}
+	html, _ := os.ReadFile(filepath.Join(h.cfg.Paths.ResultsDir, "mlist2.html"))
+	if !strings.Contains(string(html), "victor") {
+		t.Errorf("mlist2.html lacks the chain")
 	}
 }

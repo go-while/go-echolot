@@ -437,7 +437,7 @@ go-echolot import-echolot --metadata metadata.json --datadir ~/echolot/data \
   - import all `done` records; the first one of each key also proves that key (§9.2), since Echolot's ping was encrypted to it, so the imported keyring isn't empty until new pings return;
   - import `out` records older than 24 h, as genuine losses;
   - drop `out` records younger than 24 h. Their replies are GPG-encrypted and can't be verified, and dropping them avoids counting them as losses. The effect is ≤ 1 day of slightly fewer samples. A `gpg --decrypt` subprocess window for legacy pings is possible but not worth the code.
-- Chain pings: import as-is (phase 3).
+- Chain pings: `chainpings.mix.out`/`.done`, with the rules for pings; only chains whose two keys were imported.
 - Status, flags and ttl: copy. Prospective addresses become `Suggestions`.
 - **Not imported:** `fromlines` (they expire after 5 d anyway), GnuPG state.
 
@@ -734,7 +734,7 @@ relDay[d]   = sentDay[d] > 0 ? recvDay[d] / sentDay[d] : undefined
 - count per left/right nick, with `*` entries adding `n`;
 - threshold = n × 0.5;
 - emit `(A *)` / `(* B)` and drop the covered pairs; sort, dedupe;
-- operator `broken2.txt` lines are prepended.
+- operator `broken2.txt` lines are merged with the computed chains and go through the same compression and sort (`E:Stats.pm:619-631`; corrected 2026-10-22, it said "prepended").
 
 **Public vs private:** public includes only pairs where both remailers are `list-it` (`E:Stats.pm:624-625`).
 
@@ -1323,7 +1323,7 @@ Structured `log/slog` with text output, to stderr (journald) or a file; levels d
 11. **Where the pinger keys are anchored for clients:** yamn repo doc and default config? *Recommended: a `doc/pingers.md` in yamn plus commented-out defaults in the example config.* Not compiled-in.
 12. **Stats merging in yamn:** median or freshest? *Recommended: conservative median* (§9.6). Freshest is simpler, but one bad pinger controls it.
 13. **Dead remailers:** stop pinging in `dead`? *Recommended: yes* (Echolot keeps pinging until its keys expire).
-14. **Middleman pings:** publish them as-is, measuring middle plus random exit as Echolot does, or route them through a known exit with `-l middle,exit`? *Recommended: as-is for parity.* Add an optional diagnostic chain ping `(middle, our-best-exit)` in phase 3.
+14. **Middleman pings:** publish them as-is, measuring middle plus random exit as Echolot does, or route them through a known exit with `-l middle,exit`? *Recommended: as-is for parity.* ~~Add an optional diagnostic chain ping `(middle, our-best-exit)` in phase 3.~~ *Decided in phase 3: not needed; every (middle, exit) pair is chain-pinged weekly anyway, daily while it's bad.*
 15. **Run on the same host as a remailer?** *Recommended: allowed, but use a separate user and state dir.* The yamn binary is shared; the config files are not.
 16. **Who runs it first?** *Recommended: you, as the 4th pinger in parallel with mixmin, during phase 2.* Then offer the Echolot import to mixmin, Victor and Frell.
 17. **Proof of possession:** publish a key only after a ping encrypted to it came back (§9.2)? *Recommended: yes, by default* (`keys.require_proof: true`), off only for phase 1 comparisons. It delays a rotated key by one ping round (≤ ~2 h) and is the only defense against a forger who can keep sending key replies.

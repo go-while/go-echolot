@@ -2,7 +2,7 @@
 
 A pinger for the [yamn](https://github.com/crooks/yamn) remailer network, in Go. It is meant to replace the patched Perl [Echolot](https://github.com/crooks/echolot) that today's yamn pingers run.
 
-**Status: phase 2 (pings → mlist2) is in place** (steps 1–8 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot requests keys and confs from the remailers you add, pings every key through the `yamn` binary, publishes a key only after a ping to it came back (proof of possession), and writes `pubring.mix`, `type2.list`, `mlist2.txt` and `mlist.txt`. `go-echolot import-echolot` takes over an Echolot pinger's remailers, keys, ping history and thesaurus (§5.5). Still to come in phase 2: the 14-day side-by-side run against mixmin's pinger (§12.2) before its files are announced.
+**Status: phases 2 (pings → mlist2) and 3 (chain pings, HTML) are in place** (steps 1–8 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot requests keys and confs from the remailers you add, pings every key through the `yamn` binary, publishes a key only after a ping to it came back (proof of possession), and writes `pubring.mix`, `type2.list`, `mlist2.txt` and `mlist.txt`. `go-echolot import-echolot` takes over an Echolot pinger's remailers, keys, ping history and thesaurus (§5.5). Still to come in phase 2: the 14-day side-by-side run against mixmin's pinger (§12.2) before its files are announced.
 
 A pinger:
 - collects each remailer's key and capabilities by mail (`remailer-key`, `remailer-conf`);
@@ -38,8 +38,9 @@ A pinger:
 - `internal/token/`: reply addresses with HMAC tokens, Echolot's MD5 tokens after an import, and the keys derived from the secret.
 - `internal/replies/`: parsers for `remailer-key` and `remailer-conf` replies and `pubring.mix`, accepting exactly what yamn clients accept.
 - `internal/keys/`: the key policy: validity, which key is published and pinged, nick pinning, quarantine of unexpected changes, proof of possession, expiry.
-- `internal/output/`: the published files, `pubring.mix`, `type2.list`, `mlist2.txt`, `mlist.txt` and their `.meta` files, byte-identical to Echolot's.
+- `internal/output/`: the published files: `pubring.mix`, `type2.list`, `mlist2.txt`, `mlist.txt` and their `.meta` files, byte-identical to Echolot's; and the HTML pages (index, `mlist2.html`, thesaurus, fromlines).
 - `internal/stats/`: Echolot's `calculate()`, ported exactly and tested against Echolot's own output (`testdata/golden/`, `make golden`).
+- `internal/chain/`: chain pings: which pairs, when, and which chains are broken (with golden tests from Echolot).
 - `internal/pinger/`: the ping body (NaCl secretbox, MAC), the encoder that runs `yamn -m --stdout` with its own config and a one-key keyring per ping, and the receive side.
 - `internal/blake2s/`: yamn's keyid (unkeyed BLAKE2s-128).
 - `internal/fileutil/`: atomic file writes. `internal/civil/`: calendar dates for key validity.

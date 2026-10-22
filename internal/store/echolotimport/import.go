@@ -57,6 +57,7 @@ type Options struct {
 // Report says what was imported and what wasn't.
 type Report struct {
 	Remailers, Keys, Done, Out, OutDropped, Suggestions, Thesaurus int
+	ChainDone, ChainOut, ChainDropped                              int
 	Problems                                                       []string
 }
 
@@ -271,6 +272,9 @@ func Import(st *store.Store, opt Options) (*Report, error) {
 			return rep, err
 		}
 	}
+	if err := importChainPings(st, opt.DataDir, now, rep); err != nil {
+		return rep, err
+	}
 	if err := writeLegacy(st.Dir(), md.Secret, now.Add(LegacyWindow)); err != nil {
 		rep.problem("Echolot's secret not imported: %v; replies to Echolot's last requests will be refused", err)
 	}
@@ -361,6 +365,89 @@ func importPings(st *store.Store, dir, addr, keyid, stats string, now time.Time,
 		}
 		return nil
 	})
+}
+
+// importChainPings imports Echolot's chain pings (§5.5, §8.2) from
+// chainpings.mix.out ("sent a1 mix k1 a2 mix k2") and .done (… latency)
+// (E:Storage/File.pm:632-878), with the rules of importPings: every done
+// one, out ones older than a day.  Only chains whose two keys were
+// imported come in.
+func importChainPings(st *store.Store, dir string, now time.Time, rep *Report) error {
+	type cp struct {
+		p    store.ChainPing
+		lat  int64
+		done bool
+	}
+	var all []cp
+	haveKey := func(addr, keyid string) (ok bool) {
+		st.View(func(s *store.State) { ok = s.Remailers[addr] != nil && s.Remailers[addr].Keys[keyid] != nil })
+		return ok
+	}
+	seen := map[string]bool{} // done ones: their out lines may still be there
+	for _, ext := range []string{"done", "out"} {
+		f, err := os.Open(filepath.Join(dir, "chainpings.mix."+ext))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			rep.problem("chain pings: %v", err)
+			continue
+		}
+		sc := bufio.NewScanner(f)
+		for n := 1; sc.Scan(); n++ {
+			fs := strings.Fields(sc.Text())
+			want := 7
+			if ext == "done" {
+				want = 8
+			}
+			var sent, lat int64
+			var err error
+			if len(fs) == want {
+				sent, err = strconv.ParseInt(fs[0], 10, 64)
+				if err == nil && ext == "done" {
+					lat, err = strconv.ParseInt(fs[7], 10, 64)
+				}
+			}
+			if len(fs) != want || err != nil || sent <= 0 || lat < 0 || fs[2] != "mix" || fs[5] != "mix" {
+				rep.problem("chainpings.mix.%s:%d: bad line %q", ext, n, bounded(sc.Text()))
+				continue
+			}
+			key := strings.Join(fs[:7], " ")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if !haveKey(fs[1], fs[3]) || !haveKey(fs[4], fs[6]) {
+				rep.ChainDropped++
+				continue
+			}
+			all = append(all, cp{store.ChainPing{A: fs[1], KeyA: fs[3], B: fs[4], KeyB: fs[6], Sent: time.Unix(sent, 0).UTC()}, lat, ext == "done"})
+		}
+		f.Close()
+		if err := sc.Err(); err != nil {
+			rep.problem("chainpings.mix.%s: %v", ext, err)
+		}
+	}
+	slices.SortStableFunc(all, func(a, b cp) int { return a.p.Sent.Compare(b.p.Sent) })
+	for _, c := range all {
+		if !c.done && now.Sub(c.p.Sent) < outMinAge {
+			rep.ChainDropped++
+			continue
+		}
+		p, err := st.AddChainPing(c.p)
+		if err != nil {
+			return err
+		}
+		if !c.done {
+			rep.ChainOut++
+			continue
+		}
+		if _, _, err := st.ChainPingDone(p.ID, p.Sent.Add(time.Duration(c.lat)*time.Second), c.lat); err != nil {
+			return err
+		}
+		rep.ChainDone++
+	}
+	return nil
 }
 
 // status maps Echolot's states to ours (§8.5).

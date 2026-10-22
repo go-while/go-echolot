@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-while/go-echolot/internal/chain"
 	"github.com/go-while/go-echolot/internal/config"
 	"github.com/go-while/go-echolot/internal/keys"
 	"github.com/go-while/go-echolot/internal/mailin"
@@ -77,6 +78,9 @@ type Daemon struct {
 	lastTok map[string]int64 // kind.id -> last token time minted, unix
 
 	tickBudget time.Duration // how long a request tick may take: schedule.tick
+
+	chainRes chain.Result // the last evaluation of the chains (§8.2)
+	chainAt  time.Time    // when it was made; zero: not yet
 }
 
 // NewDaemon returns the daemon for cfg on the open store st.  mailer sends
@@ -190,6 +194,7 @@ func (d *Daemon) Tick(ctx context.Context, at time.Time) {
 	defer cancel()
 	d.Requests(ctx, at, nil, false)
 	d.Pings(ctx, at, nil, false)
+	d.ChainPings(ctx, at, nil, false)
 }
 
 // Requests sends the requests due at the tick at (design §6.2, §8.3).
@@ -331,7 +336,7 @@ func (d *Daemon) Handle(ctx context.Context, tok token.Token, m *mailin.Message)
 	case token.KindPing:
 		return d.receivePing(tok, m)
 	case token.KindChainping:
-		return mailin.Permanent(errors.New("chain pings are handled from phase 3 on"))
+		return d.receiveChainPing(tok, m)
 	case token.KindBounce:
 		var addr string
 		d.st.View(func(st *store.State) {
@@ -478,6 +483,9 @@ func (d *Daemon) Daily(at time.Time) {
 	if err := d.st.Compact(at.Add(-pingRetention)); err != nil {
 		d.log.Error("ping journal compaction", "err", err)
 	}
+	if err := d.st.CompactChains(at.Add(-chain.Expire)); err != nil {
+		d.log.Error("chain ping journal compaction", "err", err)
+	}
 	if n, err := mailin.PruneErrors(d.scanner.ErrorsDir, at, mailin.ErrorRetention); err != nil {
 		d.log.Error("mail-errors", "err", err)
 	} else if n > 0 {
@@ -523,6 +531,9 @@ func (d *Daemon) Command(ctx context.Context, c Command, at time.Time) []string 
 	case "sendpings":
 		d.Pings(ctx, at, c.Args, true)
 		out = []string{"pings sent"}
+	case "sendchainpings":
+		d.ChainPings(ctx, at, c.Args, true)
+		out = []string{"chain pings sent"}
 	case "buildstats":
 		d.BuildStats(at)
 		out = []string{"stats written"}

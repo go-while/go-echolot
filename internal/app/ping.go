@@ -150,6 +150,9 @@ func (d *Daemon) receivePing(tok token.Token, m *mailin.Message) error {
 	if err != nil {
 		return mailin.Permanent(fmt.Errorf("ping: %w", err))
 	}
+	if b.Chain() {
+		return mailin.Permanent(errors.New("a chain ping on a plain ping token"))
+	}
 	p, ok := d.st.Ping(b.ID)
 	switch {
 	case !ok:
@@ -244,16 +247,17 @@ func (d *Daemon) BuildStats(at time.Time) {
 		rows = append(rows, output.Row{Nick: r.nick, Address: r.addr, Caps: r.caps,
 			ListIt: output.ListIt(r.showIt, r.caps), Stats: res})
 	}
-	sec := d.sections()
+	pubSec, privSec := d.chainSections(rows, at)
 	for _, w := range []struct {
 		dir  string
 		rows []output.Row
-	}{{d.cfg.Paths.PrivateResultsDir, rows}, {d.cfg.Paths.ResultsDir, output.Public(rows)}} {
+		sec  output.Sections
+	}{{d.cfg.Paths.PrivateResultsDir, rows, privSec}, {d.cfg.Paths.ResultsDir, output.Public(rows), pubSec}} {
 		if err := os.MkdirAll(w.dir, 0o755); err != nil {
 			d.log.Error("stats", "dir", w.dir, "err", err)
 			continue
 		}
-		if err := output.WriteStats(w.dir, w.rows, sec, at, d.cfg.Stats.SortByLatency, d.cfg.Compat.MetaFiles); err != nil {
+		if err := output.WriteStats(w.dir, w.rows, w.sec, at, d.cfg.Stats.SortByLatency, d.cfg.Compat.MetaFiles); err != nil {
 			d.log.Error("stats not written", "dir", w.dir, "err", err)
 		}
 	}
@@ -265,7 +269,7 @@ func (d *Daemon) BuildStats(at time.Time) {
 	err = output.WriteHTML(d.cfg.Paths.ResultsDir, output.Pages{
 		Site:     output.Site{Name: d.cfg.Pinger.Sitename, Operator: d.cfg.Pinger.OperatorAddress, Version: d.Version},
 		Rows:     rows,
-		Sections: sec, SortByLatency: d.cfg.Stats.SortByLatency,
+		Sections: pubSec, SortByLatency: d.cfg.Stats.SortByLatency,
 		Remailers: htmlRems, Replies: replies, Meta: d.cfg.Compat.MetaFiles,
 	}, at)
 	if err != nil {

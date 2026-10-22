@@ -48,6 +48,7 @@ func init() {
 		command{"getkeyconf", "send key and conf requests now: getkeyconf [address...]", stateCmd("getkeyconf")},
 		command{"buildkeys", "write the keyrings now", stateCmd("buildkeys")},
 		command{"sendpings", "send pings now: sendpings [address...]", stateCmd("sendpings")},
+		command{"sendchainpings", "send chain pings now: sendchainpings [<a>:<b>...]", stateCmd("sendchainpings")},
 		command{"import-echolot", "import an Echolot data dir into a new state dir (see --help)", cmdImport},
 		command{"buildstats", "write mlist2.txt and mlist.txt now", stateCmd("buildstats")},
 	)
@@ -193,7 +194,7 @@ func stateCmd(verb string) func(args []string, stdout, stderr io.Writer) error {
 		}
 		c := app.Command{Verb: verb, Args: rest}
 		now := time.Now()
-		daemonVerb := verb == "getkeyconf" || verb == "buildkeys" || verb == "sendpings" || verb == "buildstats"
+		daemonVerb := verb == "getkeyconf" || verb == "buildkeys" || verb == "sendpings" || verb == "buildstats" || verb == "sendchainpings"
 		if !daemonVerb {
 			snap, err := store.Snapshot(cfg.Paths.StateDir)
 			if err != nil {
@@ -299,6 +300,8 @@ func cmdImport(args []string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "imported %d remailers, %d keys, %d returned pings, %d lost pings, %d suggestions, %d thesaurus files\n",
 		rep.Remailers, rep.Keys, rep.Done, rep.Out, rep.Suggestions, rep.Thesaurus)
 	fmt.Fprintf(stdout, "dropped %d pings sent in the last day (their replies are Echolot's and can't be read)\n", rep.OutDropped)
+	fmt.Fprintf(stdout, "chain pings: %d returned, %d lost imported, %d dropped (recent, or a key not imported)\n",
+		rep.ChainDone, rep.ChainOut, rep.ChainDropped)
 	for _, p := range rep.Problems {
 		fmt.Fprintln(stdout, "not imported:", p)
 	}
