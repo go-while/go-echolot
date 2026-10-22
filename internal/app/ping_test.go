@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,4 +115,50 @@ func TestProofAfterCrash(t *testing.T) {
 			t.Errorf("key not proven after the mail came again\n%s", h.log)
 		}
 	})
+}
+
+// TestFromlines: a ping that comes back records the exit's From header
+// and whether it added text above or below (E:Pinger.pm:150-205).
+func TestFromlines(t *testing.T) {
+	h, real, _ := pingHarness(t)
+	for i, tc := range []struct {
+		withFrom   bool
+		from, pre  string
+		post       string
+		top, bot   bool
+		wantFrom   string
+		wantStored bool
+	}{
+		{false, "Nobody <nobody@exit.example>", "", "", false, false, "Nobody <nobody@exit.example>", true},
+		{true, "pinger@pinger.example.org", "This mail was sent anonymously.\n\n", "\n-- \nAbuse: abuse@exit.example\n", true, true, "pinger@pinger.example.org", true},
+	} {
+		sent := h.clock.Now().Add(time.Duration(i) * time.Second)
+		p, _ := h.st.AddPing(store.Ping{Addr: "yamn@virebent.art", KeyID: real, WithFrom: tc.withFrom, Sent: sent})
+		sealed, _ := pinger.Seal(&h.d.macKey, &h.d.boxKey, pinger.Body{Remailer: p.Addr, Type: pinger.TypeMix,
+			KeyID: real, WithFrom: tc.withFrom, Sent: p.Sent, ID: p.ID}, 64, rand.Reader)
+		to, _ := h.d.minter.Address(token.Token{Kind: token.KindPing, Time: p.Sent})
+		h.clock.Advance(time.Minute)
+		h.deliver(fmt.Sprintf("From: %s\nTo: %s\n\n%s%s%s", tc.from, to, tc.pre, sealed, tc.post))
+		h.d.ScanMail(context.Background())
+		h.st.View(func(st *store.State) {
+			wf := 0
+			if tc.withFrom {
+				wf = 1
+			}
+			f, ok := st.Fromlines["yamn@virebent.art"][wf]
+			if !ok || f.From != tc.wantFrom || f.DisclaimTop != tc.top || f.DisclaimBot != tc.bot {
+				t.Errorf("case %d: %+v %v\n%s", i, f, ok, h.log)
+			}
+		})
+	}
+	// Expired after 5 days.
+	h.st.Update(func(st *store.State) error { expireFromlines(st, h.clock.Now().Add(6*24*time.Hour)); return nil })
+	h.st.View(func(st *store.State) {
+		if len(st.Fromlines) != 0 {
+			t.Errorf("not expired: %+v", st.Fromlines)
+		}
+	})
+	if got := cleanFrom("a\x00bé" + strings.Repeat("x", 300)); strings.ContainsAny(got, "\x00é") || len(got) > maxFromLen+3 {
+		t.Errorf("cleanFrom: %q", got)
+	}
 }

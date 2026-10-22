@@ -463,6 +463,7 @@ func (d *Daemon) Daily(at time.Time) {
 	var ids map[int]bool
 	if err := d.st.Update(func(st *store.State) error {
 		results = keys.Expire(st, at, d.cfg.Keys)
+		expireFromlines(st, at)
 		ids = map[int]bool{}
 		for _, r := range st.Remailers {
 			ids[r.ID] = true

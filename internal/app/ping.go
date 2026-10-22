@@ -183,6 +183,12 @@ func (d *Daemon) receivePing(tok token.Token, m *mailin.Message) error {
 	}
 	if news {
 		d.log.Debug("ping back", "remailer", p.Addr, "keyid", p.KeyID, "latency", latency)
+		if err := d.st.Update(func(st *store.State) error {
+			recordFromline(st, p.Addr, p.WithFrom, m.Header.Get("From"), body, received)
+			return nil
+		}); err != nil {
+			d.log.Error("fromline not saved", "remailer", p.Addr, "err", err)
+		}
 	}
 	if proven {
 		d.log.Info("key proven: a ping to it came back", "remailer", p.Addr, "keyid", p.KeyID)
