@@ -1,0 +1,20 @@
+{{- /* thesaurus/index.html, after Echolot's templates/thesaurusindex.html. */ -}}
+{{template "head" .}}
+<p>Each remailer's last reply to a <code>remailer-conf</code>,
+<code>remailer-help</code>, <code>remailer-key</code> and
+<code>remailer-adminkey</code> request, as received (plain text). The date is
+when it was requested.</p>
+<div class="scroll">
+<table class="thesaurus">
+<thead><tr><th>Nick</th><th>Address</th>{{range .Kinds}}<th>{{.}}</th>{{end}}</tr></thead>
+<tbody>
+{{- range .Remailers}}
+<tr><td>{{.Nick}}</td><td class="addr">{{.Address}}</td>
+{{- range .Cells}}<td class="date">{{if .Href}}<a href="{{.Href}}" type="text/plain">{{day .Time}}<br>{{clock .Time}}</a>{{else}}N/A{{end}}</td>{{end}}</tr>
+{{- else}}
+<tr><td colspan="{{add 2 (len .Kinds)}}">No replies.</td></tr>
+{{- end}}
+</tbody>
+</table>
+</div>
+{{template "foot" .}}

@@ -1,0 +1,36 @@
+{{- /* The frame of every page, after Echolot's templates/*.html.  No
+script and no external resource; the CSP forbids both should anything
+slip through. */ -}}
+{{define "head" -}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="generator" content="{{.Generator}}">
+<title>{{.Title}}{{with .Site.Name}} [{{.}}]{{end}}</title>
+<link rel="stylesheet" href="{{.Root}}echolot.css">
+</head>
+<body>
+<header>
+<h1>{{.Title}}{{with .Site.Name}} <span class="site">[{{.}}]</span>{{end}}</h1>
+{{- if .Up}}
+<nav><a href="{{.Root}}">Up</a>{{range .Links}} · <a href="{{.Href}}">{{.Text}}</a>{{end}}</nav>
+{{- end}}
+</header>
+<main>{{end}}
+
+{{define "foot" -}}
+</main>
+<footer>
+<p>Created by go-echolot{{with .Site.Version}} {{.}}{{end}} at <time datetime="{{.GeneratedISO}}">{{.Generated}}</time>{{if not .Up}} (other pages may be newer){{end}}.
+{{- with .Operator}}<br>
+This pinger is operated by <code>{{.}}</code>.{{end}}<br>
+All times in Coordinated Universal Time (UTC).</p>
+</footer>
+</body>
+</html>{{end}}
+
+{{define "when"}}{{if .IsZero}}N/A{{else}}<time datetime="{{iso .}}">{{day .}} {{clock .}}</time>{{end}}{{end}}

@@ -1,0 +1,27 @@
+{{- /* fromlines.html, after Echolot's templates/fromlinesindex.html. */ -}}
+{{define "fromtable"}}
+<div class="scroll">
+<table class="from">
+<thead><tr><th>Nick</th><th>Disclaimer</th><th>From Line</th><th>Seen</th></tr></thead>
+<tbody>
+{{- range .}}
+<tr><td>{{.Nick}}</td><td class="disclaim">{{if .Top}}top{{end}} {{if .Bot}}bot{{end}}</td><td class="fromline">{{if .Available}}<code>{{.From}}</code>{{else}}Not Available{{end}}</td><td class="date">{{template "when" .Seen}}</td></tr>
+{{- else}}
+<tr><td colspan="4">None.</td></tr>
+{{- end}}
+</tbody>
+</table>
+</div>
+{{- end -}}
+{{template "head" .}}
+<h2>Default From: Headers</h2>
+<p>The default From headers of all remailers when sending e-mail. Middleman
+remailers are not listed here.</p>
+{{template "fromtable" .Default}}
+
+<h2>User Supplied From: Headers</h2>
+<p>If a message sent with a user supplied From header differs from one
+without, the remailer is listed here. The difference can either be an
+additional disclaimer, actually allowing (partial) From headers, etc.</p>
+{{template "fromtable" .UserSupplied}}
+{{template "foot" .}}
