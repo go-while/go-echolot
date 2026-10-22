@@ -1,0 +1,56 @@
+# Build and test go-echolot on every push and pull request.
+# The same steps as yamn's .github/workflows/go.yml.
+name: Go
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go mod verify
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -s -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt -s:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: go test
+        run: go test -race -shuffle=on ./...
+
+      - name: fuzz the config parser
+        run: go test -run=NONE -fuzz=FuzzParse -fuzztime=30s ./internal/config
+
+      # Unix only: go-echolot will use flock, Maildir and sendmail.
+      - name: cross-build
+        run: |
+          for target in linux/amd64 linux/arm64 linux/arm freebsd/amd64 openbsd/amd64 darwin/arm64; do
+            echo "building $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/go-echolot
+          done
