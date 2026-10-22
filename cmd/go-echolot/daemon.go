@@ -46,6 +46,8 @@ func init() {
 		command{"reject", "reject pending changes: reject <address> [keyid|nick|address|key]", stateCmd("reject")},
 		command{"getkeyconf", "send key and conf requests now: getkeyconf [address...]", stateCmd("getkeyconf")},
 		command{"buildkeys", "write the keyrings now", stateCmd("buildkeys")},
+		command{"sendpings", "send pings now: sendpings [address...]", stateCmd("sendpings")},
+		command{"buildstats", "write mlist2.txt and mlist.txt now", stateCmd("buildstats")},
 	)
 }
 
@@ -188,7 +190,8 @@ func stateCmd(verb string) func(args []string, stdout, stderr io.Writer) error {
 		}
 		c := app.Command{Verb: verb, Args: rest}
 		now := time.Now()
-		if verb != "getkeyconf" && verb != "buildkeys" {
+		daemonVerb := verb == "getkeyconf" || verb == "buildkeys" || verb == "sendpings" || verb == "buildstats"
+		if !daemonVerb {
 			snap, err := store.Snapshot(cfg.Paths.StateDir)
 			if err != nil {
 				return err
@@ -196,7 +199,7 @@ func stateCmd(verb string) func(args []string, stdout, stderr io.Writer) error {
 			if _, err := app.Apply(snap, c, now); err != nil {
 				return err
 			}
-		} else if verb == "buildkeys" && len(rest) > 0 {
+		} else if (verb == "buildkeys" || verb == "buildstats") && len(rest) > 0 {
 			return usageError(stderr, verb, rest[0])
 		}
 		log, closer, err := newLogger(cfg, stderr)
@@ -232,7 +235,7 @@ func stateCmd(verb string) func(args []string, stdout, stderr io.Writer) error {
 		}
 		defer st.Close()
 		var out []string
-		if verb == "getkeyconf" || verb == "buildkeys" {
+		if daemonVerb {
 			mailer, err := newMailer(cfg)
 			if err != nil {
 				return err

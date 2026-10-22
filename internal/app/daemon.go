@@ -18,6 +18,7 @@ import (
 	"github.com/go-while/go-echolot/internal/mailin"
 	"github.com/go-while/go-echolot/internal/mailout"
 	"github.com/go-while/go-echolot/internal/output"
+	"github.com/go-while/go-echolot/internal/pinger"
 	"github.com/go-while/go-echolot/internal/replies"
 	"github.com/go-while/go-echolot/internal/sched"
 	"github.com/go-while/go-echolot/internal/sdnotify"
@@ -27,7 +28,8 @@ import (
 
 // Job names.
 const (
-	jobTick     = "tick"     // requests (and pings in phase 2), every schedule.tick
+	jobTick     = "tick"     // requests and pings, every schedule.tick
+	jobStats    = "stats"    // mlist2.txt and mlist.txt, every schedule.stats_interval
 	jobMail     = "mail"     // Maildir scan, every minute
 	jobPubring  = "pubring"  // keyrings, debounced after a key change
 	jobPubCheck = "pubcheck" // keyrings, every schedule.pubring_check_interval
@@ -64,6 +66,9 @@ type Daemon struct {
 	loop     *sched.Loop
 	scanner  *mailin.Scanner
 	schedKey [32]byte
+	encoder  pinger.Encoder
+	macKey   [32]byte // ping MAC (§6.3)
+	boxKey   [32]byte // ping secretbox
 
 	tokMu   sync.Mutex
 	lastTok map[string]int64 // kind.id -> last token time minted, unix
@@ -91,6 +96,10 @@ func NewDaemon(cfg *config.Config, st *store.Store, mailer mailout.Mailer, log *
 		lastTok:  map[string]int64{},
 
 		tickBudget: cfg.Schedule.Tick,
+		macKey:     token.DeriveKey(st.Secret(), token.PurposePingMAC),
+		boxKey:     token.DeriveKey(st.Secret(), token.PurposePingBox),
+		encoder: &pinger.YamnEncoder{Binary: cfg.Yamn.Binary, Timeout: cfg.Yamn.Timeout,
+			Sender: cfg.Pinger.Address, Log: log},
 	}
 	d.scanner = &mailin.Scanner{
 		Maildir:   cfg.Paths.Maildir,
@@ -127,7 +136,8 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 		return err
 	}
 	s := d.cfg.Schedule
-	d.loop.Every(jobTick, s.Tick, func(ctx context.Context, at time.Time) { d.Requests(ctx, at, nil, false) })
+	d.loop.Every(jobTick, s.Tick, d.Tick)
+	d.loop.Every(jobStats, s.StatsInterval, func(_ context.Context, at time.Time) { d.BuildStats(at) })
 	d.loop.Every(jobMail, mailInterval, func(ctx context.Context, _ time.Time) { d.ScanMail(ctx) })
 	d.loop.Every(jobPubCheck, s.PubringCheckInterval, func(ctx context.Context, at time.Time) { d.BuildKeys(at) })
 	d.loop.Debounced(jobPubring, s.PubringDebounce, func(ctx context.Context, at time.Time) { d.BuildKeys(at) })
@@ -149,6 +159,9 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 			}
 		}
 	}()
+	if err := pinger.SelfTest(ctx, d.encoder, d.clock.Now()); err != nil {
+		d.log.Error("yamn self-test failed: no pings can be sent", "binary", d.cfg.Yamn.Binary, "err", err)
+	}
 	sdnotify.Notify(sdnotify.Ready)
 	d.log.Info("go-echolot running", "state_dir", d.cfg.Paths.StateDir)
 	err := d.loop.Run(ctx)
@@ -156,17 +169,20 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 	return err
 }
 
+// Tick runs one scheduler tick: the requests, then the pings due at.
+// What's left after one tick waits for its next slot, so slow or
+// tarpitting remailers can't hold the job loop (and the watchdog).
+func (d *Daemon) Tick(ctx context.Context, at time.Time) {
+	ctx, cancel := context.WithTimeout(ctx, d.tickBudget)
+	defer cancel()
+	d.Requests(ctx, at, nil, false)
+	d.Pings(ctx, at, nil, false)
+}
+
 // Requests sends the requests due at the tick at (design §6.2, §8.3).
 // With only set, it sends key and conf requests now to those addresses
 // (or all with fetch on when only is empty and now is true): getkeyconf.
 func (d *Daemon) Requests(ctx context.Context, at time.Time, only []string, now bool) {
-	if !now {
-		// What's left after one tick waits for its next slot, so slow or
-		// tarpitting remailers can't hold the job loop (and the watchdog).
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, d.tickBudget)
-		defer cancel()
-	}
 	type req struct {
 		id   int
 		addr string
@@ -299,8 +315,10 @@ func (d *Daemon) ScanMail(ctx context.Context) {
 func (d *Daemon) Handle(ctx context.Context, tok token.Token, m *mailin.Message) error {
 	now := d.clock.Now()
 	switch tok.Kind {
-	case token.KindPing, token.KindChainping:
-		return mailin.Permanent(errors.New("pings are handled from phase 2 on"))
+	case token.KindPing:
+		return d.receivePing(tok, m)
+	case token.KindChainping:
+		return mailin.Permanent(errors.New("chain pings are handled from phase 3 on"))
 	case token.KindBounce:
 		var addr string
 		d.st.View(func(st *store.State) {
@@ -485,6 +503,12 @@ func (d *Daemon) Command(ctx context.Context, c Command, at time.Time) []string 
 	case "buildkeys":
 		d.BuildKeys(at)
 		out = []string{"keyrings built"}
+	case "sendpings":
+		d.Pings(ctx, at, c.Args, true)
+		out = []string{"pings sent"}
+	case "buildstats":
+		d.BuildStats(at)
+		out = []string{"stats written"}
 	default:
 		err := d.st.Update(func(st *store.State) error {
 			var err error

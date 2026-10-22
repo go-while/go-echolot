@@ -44,6 +44,15 @@ jobs:
       - name: go test
         run: go test -race -shuffle=on ./...
 
+      # The ping tests with the real yamn binary (client and remailer),
+      # skipped above without YAMN_BIN.  yamn is a separate program, built
+      # from go-while/yamn master; go-echolot never imports it.
+      - name: go test with yamn
+        run: |
+          git clone --depth 1 https://github.com/go-while/yamn "$RUNNER_TEMP/yamn-src"
+          (cd "$RUNNER_TEMP/yamn-src" && go build -o "$RUNNER_TEMP/yamn" .)
+          YAMN_BIN="$RUNNER_TEMP/yamn" go test -race -run 'Yamn' ./internal/pinger ./internal/app
+
       - name: fuzz
         run: |
           go test -run=NONE -fuzz=FuzzParse -fuzztime=20s ./internal/config

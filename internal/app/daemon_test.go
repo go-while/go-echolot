@@ -72,6 +72,11 @@ var e2eStart = time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)
 
 func newHarness(t *testing.T, requireProof bool) *harness {
 	t.Helper()
+	return newHarnessAt(t, requireProof, e2eStart)
+}
+
+func newHarnessAt(t *testing.T, requireProof bool, start time.Time) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	ini := fmt.Sprintf(`[pinger]
 sitename = Test pinger
@@ -87,7 +92,7 @@ require_proof = %v
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, dir: dir, cfg: cfg, mailer: &fakeMailer{}, clock: sched.NewFake(e2eStart), log: &bytes.Buffer{}}
+	h := &harness{t: t, dir: dir, cfg: cfg, mailer: &fakeMailer{}, clock: sched.NewFake(start), log: &bytes.Buffer{}}
 	for _, sub := range []string{"new", "cur", "tmp"} {
 		os.MkdirAll(filepath.Join(cfg.Paths.Maildir, sub), 0o700)
 	}
@@ -117,7 +122,7 @@ func (h *harness) command(verb string, args ...string) []string {
 func (h *harness) ticks(from time.Time, d time.Duration) {
 	for at := from; at.Before(from.Add(d)); at = at.Add(h.cfg.Schedule.Tick) {
 		h.clock.Advance(at.Sub(h.clock.Now()))
-		h.d.Requests(context.Background(), at, nil, false)
+		h.d.Tick(context.Background(), at)
 	}
 }
 
