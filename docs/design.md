@@ -1004,7 +1004,7 @@ Wants=network-online.target
 [Service]
 Type=notify
 User=pinger
-ExecStart=/usr/local/bin/go-echolot run --config /etc/go-echolot/config.yml
+ExecStart=/usr/local/bin/go-echolot run --config /etc/go-echolot/config.ini
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=30
@@ -1051,9 +1051,13 @@ The July 8 – August 7 outage would have shown up in two ways:
 
 The config file is a small INI format, parsed by `internal/config` with the standard library only (no YAML library: dependencies are limited to the standard library and `golang.org/x`, §1):
 - `[section]` headers; `[peer <name>]` sections repeat, one per peer;
-- `key = value`, values unquoted; `#` starts a comment line;
+- `key = value`, values unquoted. `#` starts a comment at the start of a line or of a value, or after a space or tab, so a value may contain `#` but not ` #`;
 - durations in `time.ParseDuration` form (`2h`, `168h`), lists comma-separated;
+- relative paths are relative to `paths.state_dir`;
+- every key has a default except `pinger.sitename`, `pinger.address` and `pinger.operator_address`;
 - unknown sections or keys are errors, so typos don't pass silently.
+
+[`examples/config.ini`](../examples/config.ini) documents every key with its default. `go-echolot dumpconf` checks a config file and prints it with the defaults filled in.
 
 ```ini
 [pinger]
@@ -1304,7 +1308,7 @@ Structured `log/slog` with text output, to stderr (journald) or a file; levels d
 16. **Who runs it first?** *Recommended: you, as the 4th pinger in parallel with mixmin, during phase 2.* Then offer the Echolot import to mixmin, Victor and Frell.
 17. **Proof of possession:** publish a key only after a ping encrypted to it came back (§9.2)? *Recommended: yes, by default* (`keys.require_proof: true`), off only for phase 1 comparisons. It delays a rotated key by one ping round (≤ ~2 h) and is the only defense against a forger who can keep sending key replies.
 18. **Counting pings to unpublished keys:** leave them out of the stats? *Recommended: yes*: clients can't use the key yet, so its pings say nothing about service they get.
-19. **Config format:** the standard library has no YAML or TOML parser, and dependencies are limited to the standard library and `golang.org/x`. INI-style with our own ~150-line parser, or JSON (`encoding/json`, no parser to write)? *Recommended: INI-style* (§10.3): operators need comments, which JSON doesn't allow.
+19. **Config format:** the standard library has no YAML or TOML parser, and dependencies are limited to the standard library and `golang.org/x`. INI-style with our own ~150-line parser, or JSON (`encoding/json`, no parser to write)? *Recommended: INI-style* (§10.3): operators need comments, which JSON doesn't allow. *Decided 2026-10-22: INI-style; the parser is `internal/config`.*
 
 ---
 
