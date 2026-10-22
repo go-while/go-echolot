@@ -1,0 +1,134 @@
+{
+   "alpha@example.org" : {
+      "avr_latency" : 473,
+      "avr_reliability" : 0.984567901234568,
+      "latency_day" : [
+         630,
+         113,
+         357.5,
+         357,
+         914.5,
+         493,
+         430.5
+      ],
+      "reliability_day" : [
+         1,
+         0.916666666666667,
+         1,
+         1,
+         1,
+         1,
+         1
+      ]
+   },
+   "bravo@example.org" : {
+      "avr_latency" : 2188,
+      "avr_reliability" : 0.695252679938744,
+      "latency_day" : [
+         645,
+         4479,
+         1713,
+         2019,
+         2010.5,
+         2283,
+         1596
+      ],
+      "reliability_day" : [
+         0.916666666666667,
+         0.583333333333333,
+         0.583333333333333,
+         0.916666666666667,
+         0.666666666666667,
+         0.64,
+         0.666666666666667
+      ]
+   },
+   "charlie@example.org" : {
+      "avr_latency" : 14201,
+      "avr_reliability" : 0.488192650014355,
+      "latency_day" : [
+         6033,
+         10203.5,
+         19833,
+         13960,
+         12640,
+         18860,
+         7554.5
+      ],
+      "reliability_day" : [
+         0.422480620155039,
+         0.5,
+         0.666666666666667,
+         0.5,
+         0.416666666666667,
+         0.375,
+         0.5
+      ]
+   },
+   "delta@example.org" : {
+      "avr_latency" : 59,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         38,
+         99,
+         55.5,
+         48.5,
+         23,
+         70.5,
+         70
+      ],
+      "reliability_day" : [
+         1,
+         1,
+         1,
+         1,
+         1,
+         1,
+         1
+      ]
+   },
+   "echo@example.org" : {
+      "avr_latency" : null,
+      "avr_reliability" : 0,
+      "latency_day" : [
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0
+      ]
+   },
+   "foxtrot@example.org" : {
+      "avr_latency" : 130200.5,
+      "avr_reliability" : 0.578271191174417,
+      "latency_day" : [
+         null,
+         67719,
+         76232,
+         150152,
+         154804.5,
+         145609,
+         215110
+      ],
+      "reliability_day" : [
+         0.804924242424242,
+         0.65530303030303,
+         0.435606060606061,
+         0.4375,
+         0.615384615384615,
+         0.608695652173913,
+         0.666666666666667
+      ]
+   }
+}

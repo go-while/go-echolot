@@ -18,7 +18,8 @@ sub make_dayname { (qw{Sun Mon Tue Wed Thu Fri Sat})[$_[0]] }
 sub make_monthname { (qw{Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec})[$_[0]] }
 sub write_meta_information { 1 }
 sub write_HTML_file { 1 }
-sub read_file { undef }
+# The optional texts (sameop, broken1, broken2) come from the input's "files".
+sub read_file { $Stub::Storage::DATA->{files}{$_[0]} }
 package Stub::Storage;
 our $DATA;
 sub new { bless {}, shift }
@@ -46,7 +47,11 @@ $Echolot::Config::C = { stats_days => 12, seconds_per_day => 86400,
 	do_chainpings => 0, show_chainpings => 0, combined_list => 0, separate_rlists => 0,
 	resultdir => "$outdir/pub", private_resultdir => "$outdir/priv",
 	indexfilebasename => 'echolot', echolot_css => '/dev/null',
-	broken1 => 'x', broken2 => 'x', sameop => 'x' };
+	broken1 => 'broken1', broken2 => 'broken2', sameop => 'sameop' };
+# The input's "config" overrides stats_days, pings_weight and stats_sort_by_latency.
+for my $k (qw{stats_days pings_weight stats_sort_by_latency}) {
+	$Echolot::Config::C->{$k} = $Stub::Storage::DATA->{config}{$k} if exists $Stub::Storage::DATA->{config}{$k};
+}
 $Echolot::Globals::G = { storage => Stub::Storage->new };
 require $stats_pm;
 Echolot::Stats::build_stats();
