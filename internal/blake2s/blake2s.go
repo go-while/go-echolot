@@ -4,8 +4,9 @@
 //
 // golang.org/x/crypto/blake2s can't make it: its 128-bit variant needs a
 // key.  So this wraps github.com/dchest/blake2s, the package yamn itself
-// uses, the one exception to the standard-library-and-golang.org/x rule
-// (reviewed 2026-10-22).
+// uses, at the same version (v1.0.0, same go.sum hash).  It's the one
+// exception to the standard-library-and-golang.org/x rule, for this
+// reason only; the review is yamn's ISSUES.md Y-52 (go-while/yamn#68).
 package blake2s
 
 import "github.com/dchest/blake2s"

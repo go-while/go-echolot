@@ -18,7 +18,7 @@ A pinger:
 
 - **yamn only:** no Type I (cypherpunk/PGP) remailers and no Mixmaster.
 - **Output files** are byte-compatible with Echolot's, so existing yamn clients work unchanged.
-- **Dependencies:** the Go standard library and `golang.org/x/...`, plus one reviewed exception: `github.com/dchest/blake2s`, the package yamn uses for keyids (unkeyed BLAKE2s-128, which `x/crypto` can't compute). Ping packets are built by running the `yamn` binary, which is not imported.
+- **Dependencies:** the Go standard library and `golang.org/x/...`, plus one reviewed exception: `github.com/dchest/blake2s` v1.0.0, the package yamn uses for keyids (unkeyed BLAKE2s-128, which `x/crypto` can't compute; the review is yamn's ISSUES.md Y-52 ([go-while/yamn#68](https://github.com/go-while/yamn/pull/68))). Ping packets are built by running the `yamn` binary, which is not imported.
 - **Storage:** plain files (`state.json`, a `pings.jsonl` journal) under one locked state directory.
 - **Keys reach clients faster:** keys are requested every 2 h, and the keyring is rebuilt within minutes of a key change instead of up to ~32 h later.
 - **Trust (yamn issue Y-03):**
