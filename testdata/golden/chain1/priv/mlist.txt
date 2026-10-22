@@ -1,0 +1,33 @@
+
+Broken type-I remailer chains:
+(* *)
+(* bravo)
+(* zulu)
+(alpha *)
+
+Broken type-II remailer chains:
+
+(* bravo)
+(* kilo)
+(* lima)
+(alpha delta)
+(bravo india)
+(echo *)
+(fox alpha)
+(india alpha)
+(juliet *)
+(kilo  x)
+not a chain
+Last update: Wed 21 Oct 2026 08:45:45 GMT
+mixmaster           history  latency  uptime
+--------------------------------------------
+alpha                  ***     10:00 100.00%
+bravo                  ***     10:00 100.00%
+charlie                 **     20:00 100.00%
+fox                    ***     10:00 100.00%
+golf                   ***     10:00 100.00%
+india                  ***     10:00 100.00%
+juliet                 ***     10:00 100.00%
+kilo                   ***     10:00 100.00%
+delta                   *      10:00  50.00%
+echo                        99:59:59   0.00%

@@ -5,6 +5,7 @@
 //	secret       32 random bytes as hex, mode 0600
 //	state.json   State, replaced atomically
 //	pings.jsonl  the ping journal, append-only
+//	chainpings.jsonl  the chain ping journal, append-only (chainjournal.go)
 //
 // Everything is held in memory.  The files only have to be durable and
 // readable with cat and jq.
@@ -55,6 +56,11 @@ type Store struct {
 	journal *os.File // nil after Close, or when jerr is set
 	jerr    error    // why the journal can't be written to any more
 	jsize   int64    // journal length after the last complete write
+
+	chains   *chainPings // the chain ping journal, as pings/journal/jerr/jsize
+	cjournal *os.File
+	cjerr    error
+	cjsize   int64
 }
 
 // Open locks dir, creating it if needed, and loads the state, the secret
@@ -95,6 +101,9 @@ func Open(dir string, log *slog.Logger) (_ *Store, err error) {
 	if err := s.openJournal(); err != nil {
 		return nil, err
 	}
+	if err := s.openChainJournal(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -106,6 +115,10 @@ func (s *Store) Close() error {
 	if s.journal != nil {
 		errs = append(errs, s.journal.Close())
 		s.journal = nil
+	}
+	if s.cjournal != nil {
+		errs = append(errs, s.cjournal.Close())
+		s.cjournal = nil
 	}
 	if s.lockF != nil {
 		errs = append(errs, s.lockF.Close()) // closing releases the flock
