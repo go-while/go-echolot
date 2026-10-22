@@ -17,6 +17,7 @@ import (
 	"github.com/go-while/go-echolot/internal/mailin"
 	"github.com/go-while/go-echolot/internal/mailout"
 	"github.com/go-while/go-echolot/internal/store"
+	"github.com/go-while/go-echolot/internal/store/echolotimport"
 )
 
 // stdin is where deliver reads the mail; tests replace it.
@@ -47,6 +48,7 @@ func init() {
 		command{"getkeyconf", "send key and conf requests now: getkeyconf [address...]", stateCmd("getkeyconf")},
 		command{"buildkeys", "write the keyrings now", stateCmd("buildkeys")},
 		command{"sendpings", "send pings now: sendpings [address...]", stateCmd("sendpings")},
+		command{"import-echolot", "import an Echolot data dir into a new state dir (see --help)", cmdImport},
 		command{"buildstats", "write mlist2.txt and mlist.txt now", stateCmd("buildstats")},
 	)
 }
@@ -260,6 +262,47 @@ func stateCmd(verb string) func(args []string, stdout, stderr io.Writer) error {
 		}
 		return nil
 	}
+}
+
+// cmdImport imports an Echolot data dir (design §5.5).  The daemon must
+// not run, and the state dir must be new.
+func cmdImport(args []string, stdout, stderr io.Writer) error {
+	fs := newFlags("import-echolot", stderr)
+	path := fs.String("config", config.DefaultPath, "config file")
+	meta := fs.String("metadata", "", "Echolot's data/metadata converted to JSON (required):\n"+
+		"perl -MJSON::PP -e 'my $f=shift; my $c=do{local(@ARGV,$/)=($f);<>}; my $METADATA; eval $c; die $@ if $@;\n"+
+		"  print JSON::PP->new->canonical->encode($METADATA)' ~/echolot/data/metadata > metadata.json")
+	data := fs.String("datadir", "", "Echolot's data dir, with the ping files (required)")
+	thes := fs.String("thesaurus", "", "Echolot's results/thesaurus (optional)")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	if *meta == "" || *data == "" {
+		fmt.Fprintln(stderr, "go-echolot import-echolot: --metadata and --datadir are required")
+		return errUsage
+	}
+	cfg, err := config.Load(*path)
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(cfg.Paths.StateDir, nil)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	rep, err := echolotimport.Import(st, echolotimport.Options{Metadata: *meta, DataDir: *data, Thesaurus: *thes, Now: time.Now()})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "imported %d remailers, %d keys, %d returned pings, %d lost pings, %d suggestions, %d thesaurus files\n",
+		rep.Remailers, rep.Keys, rep.Done, rep.Out, rep.Suggestions, rep.Thesaurus)
+	fmt.Fprintf(stdout, "dropped %d pings sent in the last day (their replies are Echolot's and can't be read)\n", rep.OutDropped)
+	for _, p := range rep.Problems {
+		fmt.Fprintln(stdout, "not imported:", p)
+	}
+	fmt.Fprintf(stdout, "Echolot's reply tokens are accepted until %s; stop Echolot before starting go-echolot.\n",
+		time.Now().Add(echolotimport.LegacyWindow).UTC().Format(time.RFC3339))
+	return nil
 }
 
 func usageError(stderr io.Writer, name, arg string) error {

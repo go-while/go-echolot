@@ -2,7 +2,7 @@
 
 A pinger for the [yamn](https://github.com/crooks/yamn) remailer network, in Go. It is meant to replace the patched Perl [Echolot](https://github.com/crooks/echolot) that today's yamn pingers run.
 
-**Status: phase 2 (pings → mlist2) is in place** (steps 1–8 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot requests keys and confs from the remailers you add, pings every key through the `yamn` binary, publishes a key only after a ping to it came back (proof of possession), and writes `pubring.mix`, `type2.list`, `mlist2.txt` and `mlist.txt`. Still to come in phase 2: importing an Echolot data directory, and the 14-day side-by-side run against mixmin's pinger (§12.2) before its files are announced.
+**Status: phase 2 (pings → mlist2) is in place** (steps 1–8 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot requests keys and confs from the remailers you add, pings every key through the `yamn` binary, publishes a key only after a ping to it came back (proof of possession), and writes `pubring.mix`, `type2.list`, `mlist2.txt` and `mlist.txt`. `go-echolot import-echolot` takes over an Echolot pinger's remailers, keys, ping history and thesaurus (§5.5). Still to come in phase 2: the 14-day side-by-side run against mixmin's pinger (§12.2) before its files are announced.
 
 A pinger:
 - collects each remailer's key and capabilities by mail (`remailer-key`, `remailer-conf`);

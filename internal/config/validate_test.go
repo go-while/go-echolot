@@ -133,8 +133,8 @@ func TestValidateErrors(t *testing.T) {
 		{func(c *Config) { c.Stats.SkewAbs = -time.Second }, "stats.skew_abs must not be negative"},
 		{func(c *Config) { c.Stats.SkewPercent = 0 }, "stats.skew_percent must be more than 0 and at most 1"},
 		{func(c *Config) { c.Stats.SkewPercent = 1.5 }, "stats.skew_percent"},
-		{func(c *Config) { c.Stats.RandomGarbage = -1 }, "stats.random_garbage must be 0 to 10240"},
-		{func(c *Config) { c.Stats.RandomGarbage = 10241 }, "stats.random_garbage"},
+		{func(c *Config) { c.Stats.RandomGarbage = -1 }, "stats.random_garbage must be 0 to 8192"},
+		{func(c *Config) { c.Stats.RandomGarbage = 8193 }, "stats.random_garbage must be 0 to 8192"},
 
 		{func(c *Config) { c.Keys.Retention = 0 }, "keys.retention must be more than 0"},
 		{func(c *Config) { c.Keys.Retention = 721 * time.Hour }, "at most 720h"},

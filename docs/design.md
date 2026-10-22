@@ -431,10 +431,10 @@ go-echolot import-echolot --metadata metadata.json --datadir ~/echolot/data \
 
 **Import rules:**
 - Keep IDs and `addresses_maxid`, so in-flight `conf.<id>` tokens still resolve.
-- Import `secret` into `legacy_secret`. While `compat.legacy_md5_tokens_until` (default: import time + 48 h) is in the future, accept Echolot MD5 tokens: `md5_hex("<type>.<id>=<time>"+secret)[:8]` (`E:Tools.pm:94-145`). This applies to request replies only.
+- Import `secret` into `state_dir/legacy_secret`, with its end: import time + 48 h. Until then, accept Echolot MD5 tokens: `md5_hex("<type>.<id>=<time>"+secret)[:8]` (`E:Tools.pm:94-145`). This applies to request replies only. `compat.legacy_md5_tokens_until`, if set, overrides the end.
 - Keys: parse `summary` and `key` with the yamn rules. Drop and report keys that fail keyid = BLAKE2s(pk). The nick from the conf becomes the pinned nick if it matches the key nick, and is quarantined otherwise.
-- Pings:
-  - import all `done` records;
+- Pings (all counted in the stats: Echolot published their keys):
+  - import all `done` records; the first one of each key also proves that key (§9.2), since Echolot's ping was encrypted to it, so the imported keyring isn't empty until new pings return;
   - import `out` records older than 24 h, as genuine losses;
   - drop `out` records younger than 24 h. Their replies are GPG-encrypted and can't be verified, and dropping them avoids counting them as losses. The effect is ≤ 1 day of slightly fewer samples. A `gpg --decrypt` subprocess window for legacy pings is possible but not worth the code.
 - Chain pings: import as-is (phase 3).

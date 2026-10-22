@@ -23,6 +23,7 @@ import (
 	"github.com/go-while/go-echolot/internal/sched"
 	"github.com/go-while/go-echolot/internal/sdnotify"
 	"github.com/go-while/go-echolot/internal/store"
+	"github.com/go-while/go-echolot/internal/store/echolotimport"
 	"github.com/go-while/go-echolot/internal/token"
 )
 
@@ -85,7 +86,7 @@ func NewDaemon(cfg *config.Config, st *store.Store, mailer mailout.Mailer, log *
 	if clock == nil {
 		clock = sched.RealClock()
 	}
-	m, err := NewMinter(cfg, st.Secret())
+	m, err := NewMinter(cfg, st.Dir(), st.Secret())
 	if err != nil {
 		return nil, err
 	}
@@ -117,13 +118,23 @@ func NewDaemon(cfg *config.Config, st *store.Store, mailer mailout.Mailer, log *
 }
 
 // NewMinter returns the reply token minter for cfg and the store's secret.
-func NewMinter(cfg *config.Config, secret []byte) (*token.Minter, error) {
+// After import-echolot, Echolot's MD5 tokens are accepted on request
+// replies until the time import-echolot recorded, or
+// compat.legacy_md5_tokens_until if that is set (§5.5).
+func NewMinter(cfg *config.Config, stateDir string, secret []byte) (*token.Minter, error) {
+	legacy, until, err := echolotimport.ReadLegacy(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.Compat.LegacyMD5TokensUntil.IsZero() {
+		until = cfg.Compat.LegacyMD5TokensUntil
+	}
 	return token.New(token.Config{
-		Secret:      secret,
-		Address:     cfg.Pinger.Address,
-		Delimiter:   cfg.Pinger.RecipientDelimiter,
-		LegacyUntil: cfg.Compat.LegacyMD5TokensUntil,
-		// The Echolot secret comes with import-echolot (phase 2).
+		Secret:       secret,
+		Address:      cfg.Pinger.Address,
+		Delimiter:    cfg.Pinger.RecipientDelimiter,
+		LegacySecret: legacy,
+		LegacyUntil:  until,
 	})
 }
 
