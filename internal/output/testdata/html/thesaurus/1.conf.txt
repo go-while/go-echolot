@@ -1,0 +1,2 @@
+Remailer-Type: yamn-0.2.8
+$remailer{"alpha"} = "<alpha@example.org> mix klen1000";

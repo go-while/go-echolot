@@ -1,0 +1,49 @@
+{{- /* The index page, after Echolot's templates/echolot.html. */ -}}
+{{template "head" .}}
+<p>This pinger collects reliability statistics for the Mixmaster (type II)
+remailers of the yamn network. It also offers the current keyring and each
+remailer's replies to <code>remailer-conf</code>, <code>remailer-key</code>,
+<code>remailer-help</code> and <code>remailer-adminkey</code> requests for
+your convenience.</p>
+
+<h2>Available Stats</h2>
+<p>Out of the {{.Total}} Mixmaster remailers on these stats there
+{{if eq .Over98 1}}is 1 remailer{{else}}are {{.Over98}} remailers{{end}}
+over 98.0% in terms of overall reliability.</p>
+<div class="scroll">
+<table>
+<thead><tr><th>Format</th><th>Mixmaster (type II)</th></tr></thead>
+<tbody>
+<tr><td>HTML</td><td><a href="mlist2.html"><code>mlist2.html</code></a></td></tr>
+<tr><td>Plain text</td><td><a href="mlist2.txt"><code>mlist2.txt</code></a> · <a href="mlist.txt"><code>mlist.txt</code></a></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Available Keyrings</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>File</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><a href="pubring.mix"><code>pubring.mix</code></a></td><td>the keys, for yamn clients</td></tr>
+<tr><td><a href="type2.list"><code>type2.list</code></a></td><td>their summary lines</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Thesaurus</h2>
+<p>Find the Thesaurus index in <a href="thesaurus/">thesaurus/</a>.</p>
+
+<h2>From Header Lines</h2>
+<p>A summary of the <a href="fromlines.html">From headers</a> each remailer
+uses has also been compiled. It also lists which remailers allow setting the
+From: header.</p>
+{{- with .Site.PingerKey}}
+
+<h2 id="signing-key">Signing Key</h2>
+<p>The published files are signed with this pinger's minisign key,
+<a href="pinger.pub"><code>pinger.pub</code></a>. Its fingerprint is:</p>
+<p><code class="fpr">{{.}}</code></p>
+<p>Check it against the list in the yamn repository, not against this page.</p>
+{{- end}}
+{{template "foot" .}}
