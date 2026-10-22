@@ -125,7 +125,11 @@ func sampleState() *State {
 	}}
 	st.AddRemailer("frell@frell.eu.org", t0)
 	st.Prospective = map[string][]Suggestion{"new@example.org": {{Time: t0, Reason: "listed", Source: "yamn"}}}
-	st.Pending = []PendingChange{{Address: "yamn@mixmin.net", Kind: PendingKeyChange, Old: "a1b2", New: "c3d4", Since: t0}}
+	st.Pending = []PendingChange{
+		{Address: "yamn@mixmin.net", Kind: PendingKeyChange, Old: "a1b2", New: "c3d4", Since: t0},
+		{Address: "yamn@mixmin.net", Kind: PendingNickChange, Old: "yamn", New: "mixmin", Since: t0,
+			Sightings: 2, LastSeen: t0.Add(time.Hour), OldSeen: t0.Add(-time.Hour), Rejected: true},
+	}
 	st.Fromlines = map[string]map[int]Fromline{"yamn@mixmin.net": {1: {LastUpdate: t0, From: "Anonymous"}}}
 	return st
 }

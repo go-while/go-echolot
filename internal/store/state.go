@@ -114,12 +114,21 @@ func (k *PublicKey) UnmarshalText(b []byte) error {
 
 // PendingChange is a quarantined change waiting for its time or for the
 // operator (design §9.2).
+//
+// A key change counts sightings on the new key; a nick or address change
+// counts them here.  OldSeen is the last token time a reply showed the old
+// nick or address again.  A rejected nick or address change is kept, with
+// Rejected set, so the same change isn't quarantined again.
 type PendingChange struct {
-	Address string    `json:"address"`
-	Kind    string    `json:"kind"` // PendingKeyChange, PendingNickChange, PendingAddressChange
-	Old     string    `json:"old"`
-	New     string    `json:"new"` // keyid, nick or address
-	Since   time.Time `json:"since"`
+	Address   string    `json:"address"`
+	Kind      string    `json:"kind"` // PendingKeyChange, PendingNickChange, PendingAddressChange
+	Old       string    `json:"old"`
+	New       string    `json:"new"` // keyid, nick or address
+	Since     time.Time `json:"since"`
+	Sightings int       `json:"sightings,omitempty"` // nick and address changes
+	LastSeen  time.Time `json:"last_seen"`           // token time of the last reply showing New
+	OldSeen   time.Time `json:"old_seen"`            // token time of the last reply showing Old
+	Rejected  bool      `json:"rejected,omitempty"`  // by the operator
 }
 
 // Suggestion is a reason to add an address, from another remailer's
