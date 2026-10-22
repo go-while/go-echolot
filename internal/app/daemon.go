@@ -81,6 +81,8 @@ type Daemon struct {
 
 	chainRes chain.Result // the last evaluation of the chains (§8.2)
 	chainAt  time.Time    // when it was made; zero: not yet
+
+	signer *signer // nil: signing is off (§9.5)
 }
 
 // NewDaemon returns the daemon for cfg on the open store st.  mailer sends
@@ -107,6 +109,9 @@ func NewDaemon(cfg *config.Config, st *store.Store, mailer mailout.Mailer, log *
 		boxKey:     token.DeriveKey(st.Secret(), token.PurposePingBox),
 		encoder: &pinger.YamnEncoder{Binary: cfg.Yamn.Binary, Timeout: cfg.Yamn.Timeout,
 			Sender: cfg.Pinger.Address, Log: log},
+	}
+	if d.signer, err = newSigner(cfg, st, log); err != nil {
+		return nil, err
 	}
 	d.scanner = &mailin.Scanner{
 		Maildir:   cfg.Paths.Maildir,
@@ -452,21 +457,26 @@ func (d *Daemon) BuildKeys(at time.Time) {
 	}
 	var public, private []replies.ParsedKey
 	d.st.View(func(st *store.State) { public, private = output.Keyrings(st, at, d.cfg.Keys.RequireProof) })
+	// Only the public files are signed: clients fetch those.
 	for _, w := range []struct {
-		dir string
-		ks  []replies.ParsedKey
-	}{{d.cfg.Paths.ResultsDir, public}, {d.cfg.Paths.PrivateResultsDir, private}} {
+		dir  string
+		ks   []replies.ParsedKey
+		sign output.SignFunc
+	}{{d.cfg.Paths.ResultsDir, public, d.signer.sign(at)}, {d.cfg.Paths.PrivateResultsDir, private, nil}} {
 		if err := os.MkdirAll(w.dir, 0o755); err != nil {
 			d.log.Error("keyring", "dir", w.dir, "err", err)
 			continue
 		}
-		changed, err := output.WriteKeyrings(w.dir, w.ks, at, d.cfg.Compat.MetaFiles, keyringMetaTTL)
+		changed, err := output.WriteKeyrings(w.dir, w.ks, at, d.cfg.Compat.MetaFiles, keyringMetaTTL, w.sign)
 		switch {
 		case err != nil:
 			d.log.Error("keyring not written", "dir", w.dir, "err", err)
 		case changed:
 			d.log.Info("keyring written", "dir", w.dir, "keys", len(w.ks))
 		}
+	}
+	if err := d.signer.writePingerKey(d.cfg.Paths.ResultsDir); err != nil {
+		d.log.Error("pinger.pub not written", "err", err)
 	}
 }
 

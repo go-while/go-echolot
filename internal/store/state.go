@@ -49,6 +49,11 @@ type State struct {
 	Prospective map[string][]Suggestion     `json:"prospective,omitempty"` // by address
 	Pending     []PendingChange             `json:"pending,omitempty"`     // quarantined changes
 	Fromlines   map[string]map[int]Fromline `json:"fromlines,omitempty"`   // address -> with_from -> line (phase 3)
+	// Signed is the newest signature timestamp (Unix seconds) per signing
+	// key and file, "<KEYID>/<file>" (design §9.5): saved before the
+	// signature is published, so timestamps never go backwards, also
+	// after a restart.
+	Signed map[string]int64 `json:"signed,omitempty"`
 }
 
 // Remailer is one remailer address the pinger knows.

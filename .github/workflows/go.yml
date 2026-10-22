@@ -53,6 +53,20 @@ jobs:
           (cd "$RUNNER_TEMP/yamn-src" && go build -o "$RUNNER_TEMP/yamn" .)
           YAMN_BIN="$RUNNER_TEMP/yamn" go test -race -run 'Yamn' ./internal/pinger ./internal/app
 
+      # The signatures against the reference minisign tool (design §9.5):
+      # the committed test vectors, and round trips both ways with new keys.
+      - name: minisign
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q minisign
+          cd testdata/signing
+          minisign -Vm pubring.mix -p pinger.pub
+          minisign -Vm pubring.mix -x pubring.mix.minisign-tool.minisig -p pinger.pub
+          minisign -Vm mlist2.txt -P "$(sed -n 2p pinger.pub)"
+          minisign -Vm mlist2.txt -x mlist2.txt.minisign-tool.minisig -p pinger.pub
+          cd ../..
+          MINISIGN_BIN="$(command -v minisign)" go test -race -run 'Minisign|Vectors' -v ./internal/minisign
+
       - name: fuzz
         run: |
           go test -run=NONE -fuzz=FuzzParse -fuzztime=20s ./internal/config
@@ -61,6 +75,7 @@ jobs:
           go test -run=NONE -fuzz=FuzzParseKey -fuzztime=20s ./internal/replies
           go test -run=NONE -fuzz=FuzzParseConf -fuzztime=20s ./internal/replies
           go test -run=NONE -fuzz=FuzzScan -fuzztime=20s ./internal/mailin
+          go test -run=NONE -fuzz=FuzzParseSignature -fuzztime=20s ./internal/minisign
 
       # Unix only: go-echolot will use flock, Maildir and sendmail.
       - name: cross-build

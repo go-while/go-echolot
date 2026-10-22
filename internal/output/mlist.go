@@ -186,8 +186,9 @@ func checkRows(rows []Row) error {
 // Unlike the keyrings they're rewritten every time: Generated: must
 // advance (§4.2).  Nothing is written if a check fails.  Call it once with
 // all rows for the private directory and once with Public(rows) for the
-// public one (E:Stats.pm:683-687).
-func WriteStats(dir string, rows []Row, sec Sections, now time.Time, sortByLatency, meta bool) error {
+// public one (E:Stats.pm:683-687).  Each file is signed with sign after
+// it's written (nil: none).
+func WriteStats(dir string, rows []Row, sec Sections, now time.Time, sortByLatency, meta bool, sign SignFunc) error {
 	if err := checkRows(rows); err != nil {
 		return err
 	}
@@ -207,6 +208,9 @@ func WriteStats(dir string, rows []Row, sec Sections, now time.Time, sortByLaten
 	}
 	for _, f := range files {
 		if err := fileutil.WriteAtomic(filepath.Join(dir, f.name), f.data, filePerm); err != nil {
+			return err
+		}
+		if err := writeSignature(dir, f.name, f.data, sign); err != nil {
 			return err
 		}
 		if meta {
