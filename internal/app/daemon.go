@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-while/go-echolot/internal/config"
@@ -40,7 +41,17 @@ const (
 	commandsDelay    = time.Second // after a SIGHUP
 	keyringMetaTTL   = time.Hour   // .meta Expires of the keyrings (design §7.2)
 	pingRetention    = 12 * 24 * time.Hour
+	maxLoggedErrors  = 5 // per reply: a reply is attacker-controlled text
 )
+
+// bounded cuts s for the log.
+func bounded(s string) string {
+	const n = 200
+	if len(s) > n {
+		return s[:n] + "..."
+	}
+	return s
+}
 
 // Daemon is the running pinger: `go-echolot run`.
 type Daemon struct {
@@ -53,6 +64,11 @@ type Daemon struct {
 	loop     *sched.Loop
 	scanner  *mailin.Scanner
 	schedKey [32]byte
+
+	tokMu   sync.Mutex
+	lastTok map[string]int64 // kind.id -> last token time minted, unix
+
+	tickBudget time.Duration // how long a request tick may take: schedule.tick
 }
 
 // NewDaemon returns the daemon for cfg on the open store st.  mailer sends
@@ -72,6 +88,9 @@ func NewDaemon(cfg *config.Config, st *store.Store, mailer mailout.Mailer, log *
 		cfg: cfg, st: st, minter: m, mailer: mailer, log: log, clock: clock,
 		loop:     sched.New(clock, log),
 		schedKey: token.DeriveKey(st.Secret(), token.PurposeSched),
+		lastTok:  map[string]int64{},
+
+		tickBudget: cfg.Schedule.Tick,
 	}
 	d.scanner = &mailin.Scanner{
 		Maildir:   cfg.Paths.Maildir,
@@ -80,6 +99,10 @@ func NewDaemon(cfg *config.Config, st *store.Store, mailer mailout.Mailer, log *
 		Handler:   d,
 		Log:       log,
 		Now:       clock.Now,
+		// Retry transient failures (a full disk, say) for a day, not 60
+		// scans: the scan runs every minute.
+		MaxTries: int(mailin.DefaultRetryFor/mailInterval) + 1,
+		RetryFor: mailin.DefaultRetryFor,
 	}
 	return d, nil
 }
@@ -96,8 +119,13 @@ func NewMinter(cfg *config.Config, secret []byte) (*token.Minter, error) {
 }
 
 // Run runs the jobs until ctx is cancelled.  hup delivers SIGHUPs: each
-// one runs the command spool soon.
+// one runs the command spool soon.  The caller must handle SIGHUP before
+// opening the store; Run then marks the lock as the daemon's, so CLI
+// commands spool for it and signal it.
 func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
+	if err := d.st.MarkDaemon(); err != nil {
+		return err
+	}
 	s := d.cfg.Schedule
 	d.loop.Every(jobTick, s.Tick, func(ctx context.Context, at time.Time) { d.Requests(ctx, at, nil, false) })
 	d.loop.Every(jobMail, mailInterval, func(ctx context.Context, _ time.Time) { d.ScanMail(ctx) })
@@ -106,11 +134,11 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 	d.loop.Every(jobDaily, 24*time.Hour, func(ctx context.Context, at time.Time) { d.Daily(at) })
 	d.loop.Every(jobCommands, commandsInterval, func(ctx context.Context, at time.Time) { d.Commands(ctx, at) })
 	d.loop.Debounced("hup", commandsDelay, func(ctx context.Context, at time.Time) { d.Commands(ctx, at) })
-	d.loop.OnTick(func(name string, _ time.Time) {
-		if name == jobTick {
-			sdnotify.Notify(sdnotify.Watchdog) // only after a completed tick (design §10.1)
-		}
-	})
+	// The watchdog is fed whenever a job completes: the loop runs every
+	// job in one goroutine, so a stuck job starves it and systemd
+	// restarts the daemon.  A request tick is limited to one tick
+	// (Requests), so WatchdogSec must be well over twice schedule.tick.
+	d.loop.OnTick(func(string, time.Time) { sdnotify.Notify(sdnotify.Watchdog) })
 	go func() {
 		for {
 			select {
@@ -122,7 +150,6 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 		}
 	}()
 	sdnotify.Notify(sdnotify.Ready)
-	os.Unsetenv("NOTIFY_SOCKET") // not for the yamn child processes
 	d.log.Info("go-echolot running", "state_dir", d.cfg.Paths.StateDir)
 	err := d.loop.Run(ctx)
 	sdnotify.Notify(sdnotify.Stopping)
@@ -133,6 +160,13 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 // With only set, it sends key and conf requests now to those addresses
 // (or all with fetch on when only is empty and now is true): getkeyconf.
 func (d *Daemon) Requests(ctx context.Context, at time.Time, only []string, now bool) {
+	if !now {
+		// What's left after one tick waits for its next slot, so slow or
+		// tarpitting remailers can't hold the job loop (and the watchdog).
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.tickBudget)
+		defer cancel()
+	}
 	type req struct {
 		id   int
 		addr string
@@ -169,50 +203,73 @@ func (d *Daemon) Requests(ctx context.Context, at time.Time, only []string, now 
 			}
 		}
 	})
-	for _, q := range due {
+	for i, q := range due {
+		err := d.sendRequest(ctx, q.id, q.addr, q.kind)
 		if ctx.Err() != nil {
+			d.log.Warn("tick over: requests left for their next slot", "remailer", q.addr, "kind", q.kind, "left", len(due)-i)
 			return
 		}
-		err := d.sendRequest(ctx, q.id, q.addr, q.kind, at)
 		switch {
 		case errors.Is(err, mailout.ErrOnionWithoutTor):
 			d.log.Info("skipping .onion remailer: mail.tor_socks is not set", "remailer", q.addr)
 			continue
+		case mailout.IsPermanent(err):
+			// The remailer's side refused it: like a bounce, it counts
+			// as a request without a reply (Y-41: no retrying for days).
+			d.log.Warn("request refused", "remailer", q.addr, "kind", q.kind, "err", err)
 		case err != nil:
 			d.log.Warn("request not sent", "remailer", q.addr, "kind", q.kind, "err", err)
 			continue // our failure, not the remailer's: no TTL change
+		default:
+			d.log.Debug("request sent", "remailer", q.addr, "kind", q.kind)
 		}
-		d.log.Debug("request sent", "remailer", q.addr, "kind", q.kind)
-		if q.kind == token.KindConf {
-			d.st.Update(func(st *store.State) error {
-				if r := st.RemailerByID(q.id); r != nil {
-					changed := false
-					if r.Status == store.StatusTTLTimeout {
-						changed = keys.DecreaseResurrectionTTL(r)
-					} else if !now {
-						changed = keys.DecreaseTTL(r)
-					}
-					if changed {
-						d.log.Warn("remailer state changed", "remailer", r.Address, "status", r.Status)
-					}
+		if q.kind != token.KindConf || now {
+			continue // TTLs count scheduled conf requests only
+		}
+		err = d.st.Update(func(st *store.State) error {
+			if r := st.RemailerByID(q.id); r != nil {
+				changed := false
+				if r.Status == store.StatusTTLTimeout {
+					changed = keys.DecreaseResurrectionTTL(r)
+				} else {
+					changed = keys.DecreaseTTL(r)
 				}
-				return nil
-			})
+				if changed {
+					d.log.Warn("remailer state changed", "remailer", r.Address, "status", r.Status)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			d.log.Error("TTL not saved", "remailer", q.addr, "err", err)
 		}
 	}
+}
+
+// tokenTime returns the time for a new token of kind for remailer id:
+// now, but always later than the last one, so no token address is ever
+// used twice (yamn answers each address once a day, §9.4).
+func (d *Daemon) tokenTime(kind token.Kind, id int) time.Time {
+	d.tokMu.Lock()
+	defer d.tokMu.Unlock()
+	k := fmt.Sprintf("%s.%d", kind, id)
+	t := max(d.clock.Now().Unix(), d.lastTok[k]+1)
+	d.lastTok[k] = t
+	return time.Unix(t, 0).UTC()
 }
 
 // sendRequest sends one remailer-<kind> request, from a new token address
 // (never reused: yamn answers each address once a day, §9.4) with a VERP
 // bounce address as the envelope sender.
-func (d *Daemon) sendRequest(ctx context.Context, id int, addr string, kind token.Kind, now time.Time) error {
+func (d *Daemon) sendRequest(ctx context.Context, id int, addr string, kind token.Kind) error {
+	now := d.tokenTime(kind, id)
 	from, err := d.minter.Address(token.Token{Kind: kind, ID: id, Time: now})
 	if err != nil {
 		return err
 	}
 	envelope := d.cfg.Pinger.Address
 	if d.cfg.Pinger.RecipientDelimiter != "" {
-		if envelope, err = d.minter.Address(token.Token{Kind: token.KindBounce, ID: id, Time: now}); err != nil {
+		if envelope, err = d.minter.Address(token.Token{Kind: token.KindBounce, ID: id, Time: d.tokenTime(token.KindBounce, id)}); err != nil {
 			return err
 		}
 	}
@@ -252,7 +309,8 @@ func (d *Daemon) Handle(ctx context.Context, tok token.Token, m *mailin.Message)
 			}
 		})
 		d.log.Warn("bounce", "remailer", addr, "id", tok.ID, "sent", tok.Time.Format(time.RFC3339))
-		return nil
+		// Kept in mail-errors for the operator (§9.4), not processed.
+		return mailin.Permanent(fmt.Errorf("bounce for remailer id %d (%s)", tok.ID, addr))
 	}
 	body, err := replies.Body(m.Header, m.Body)
 	if err != nil {
@@ -263,7 +321,7 @@ func (d *Daemon) Handle(ctx context.Context, tok token.Token, m *mailin.Message)
 	if !known {
 		return mailin.Permanent(fmt.Errorf("reply for remailer id %d, which isn't known", tok.ID))
 	}
-	if err := SaveThesaurus(d.cfg.Paths.StateDir, tok.ID, tok.Kind, body, m.Delivered); err != nil {
+	if err := SaveThesaurus(d.cfg.Paths.StateDir, tok.ID, tok.Kind, body, tok.Time); err != nil {
 		return err // transient: try again next scan
 	}
 	if replies.IsNotARemailer(body) {
@@ -279,8 +337,12 @@ func (d *Daemon) Handle(ctx context.Context, tok token.Token, m *mailin.Message)
 	switch tok.Kind {
 	case token.KindKey:
 		kr := replies.ParseKey(body)
-		for _, e := range kr.Errors {
-			d.log.Info("key reply: skipped a key", "id", tok.ID, "err", e)
+		for i, e := range kr.Errors {
+			if i == maxLoggedErrors {
+				d.log.Info("key reply: more keys skipped", "id", tok.ID, "more", len(kr.Errors)-i)
+				break
+			}
+			d.log.Info("key reply: skipped a key", "id", tok.ID, "err", bounded(e.Error()))
 		}
 		err = d.st.Update(func(st *store.State) error {
 			if r := st.RemailerByID(tok.ID); r != nil {
@@ -401,6 +463,10 @@ func (d *Daemon) Commands(ctx context.Context, at time.Time) {
 		d.log.Warn("command spool", "err", err)
 	}
 	for _, c := range cmds {
+		if err := c.Start(); err != nil { // at most once, even after a crash
+			d.log.Error("command spool", "err", err)
+			continue
+		}
 		d.Command(ctx, c.Command, at)
 		if err := c.Done(); err != nil {
 			d.log.Error("command spool", "err", err)

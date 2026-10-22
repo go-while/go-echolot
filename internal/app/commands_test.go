@@ -134,9 +134,18 @@ func TestSpool(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(spool, "00-bad.json.bad")); err != nil {
 		t.Error("bad command not set aside")
 	}
+	if err := cmds[0].Start(); err != nil {
+		t.Fatal(err)
+	}
 	cmds[0].Done()
 	if cmds, _ := ReadSpool(dir); len(cmds) != 1 || cmds[0].Verb != "enable" {
 		t.Errorf("after Done: %+v", cmds)
+	}
+	// A crash while running: the command isn't run again.
+	cmds, _ = ReadSpool(dir)
+	cmds[0].Start()
+	if cmds, errs := ReadSpool(dir); len(cmds) != 0 || len(errs) != 1 || !strings.Contains(errs[0].Error(), "interrupted") {
+		t.Errorf("after an interrupted run: %+v %v", cmds, errs)
 	}
 	if fi, _ := os.Stat(spool); fi.Mode().Perm() != 0o700 {
 		t.Errorf("spool mode %v", fi.Mode())

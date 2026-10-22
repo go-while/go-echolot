@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/mail"
 	"os"
 	"path/filepath"
@@ -27,12 +28,17 @@ import (
 
 // fakeMailer records what would have been sent.
 type fakeMailer struct {
-	mu   sync.Mutex
-	sent []mailout.Mail
-	fail error
+	mu    sync.Mutex
+	sent  []mailout.Mail
+	fail  error
+	block bool // wait for the context, like a tarpit
 }
 
-func (f *fakeMailer) Send(_ context.Context, m mailout.Mail) error {
+func (f *fakeMailer) Send(ctx context.Context, m mailout.Mail) error {
+	if f.block {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {
@@ -243,7 +249,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Errorf("mail left in new/: %v", entries)
 	}
 	errs, _ := os.ReadDir(filepath.Join(h.cfg.Paths.StateDir, "mail-errors"))
-	if len(errs) != 2 { // the spam and its .reason file
+	if len(errs) != 4 { // the spam and the bounce, each with its .reason file
 		t.Errorf("mail-errors: %v", errs)
 	}
 	if !strings.Contains(h.log.String(), "msg=bounce") {
@@ -391,4 +397,101 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.w.Write(p)
+}
+
+func TestRequestRules(t *testing.T) {
+	h := newHarness(t, false)
+	h.command("add", "yamn@virebent.art")
+	ttl := func() (int, int) {
+		var a, b int
+		h.st.View(func(st *store.State) { r := st.Remailers["yamn@virebent.art"]; a, b = r.TTL, r.ResurrectionTTL })
+		return a, b
+	}
+
+	// Manual requests never change TTLs, also in "ttl timeout".
+	h.st.Update(func(st *store.State) error {
+		st.Remailers["yamn@virebent.art"].Status = store.StatusTTLTimeout
+		return nil
+	})
+	for range 3 {
+		h.command("getkeyconf")
+	}
+	if a, b := ttl(); a != store.DefaultTTL || b != store.DefaultResurrectionTTL {
+		t.Errorf("TTLs after manual requests: %d %d", a, b)
+	}
+	// Three runs in the same second: still a new address each time.
+	seen := map[string]bool{}
+	for _, m := range h.mailer.take() {
+		msg, _ := mail.ReadMessage(bytes.NewReader(m.Data))
+		for _, a := range []string{msg.Header.Get("From"), m.EnvelopeFrom + " (envelope)"} {
+			if seen[a] {
+				t.Errorf("address used twice: %s", a)
+			}
+			seen[a] = true
+		}
+	}
+	if len(seen) != 12 {
+		t.Errorf("%d distinct addresses, want 12", len(seen))
+	}
+
+	// A permanent refusal counts like a conf request without a reply.
+	h.st.Update(func(st *store.State) error { st.Remailers["yamn@virebent.art"].Status = store.StatusActive; return nil })
+	h.mailer.fail = fmt.Errorf("550 no such user: %w", mailout.ErrPermanent)
+	h.ticks(e2eStart, 24*time.Hour)
+	if a, _ := ttl(); a != store.DefaultTTL-1 {
+		t.Errorf("TTL after a refused conf request: %d", a)
+	}
+	if !strings.Contains(h.log.String(), "request refused") {
+		t.Errorf("log:\n%s", h.log)
+	}
+}
+
+// TestTickBudget: a tarpit can't hold the request job longer than a tick.
+func TestTickBudget(t *testing.T) {
+	h := newHarness(t, false)
+	h.command("add", "yamn@virebent.art")
+	h.command("add", "yamn4@mixmin.net")
+	h.mailer.block = true
+	h.d.tickBudget = 50 * time.Millisecond
+	start := time.Now()
+	h.ticks(e2eStart, 24*time.Hour)
+	if d := time.Since(start); d > 30*time.Second {
+		t.Errorf("a day of ticks against a tarpit took %s", d)
+	}
+	if !strings.Contains(h.log.String(), "requests left for their next slot") {
+		t.Errorf("log:\n%s", h.log)
+	}
+}
+
+// TestSystemdNotify: READY and STOPPING reach systemd, and NOTIFY_SOCKET
+// stays set so the watchdog can be fed.
+func TestSystemdNotify(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "notify")
+	conn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: sock, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	t.Setenv("NOTIFY_SOCKET", sock)
+	h := newHarness(t, false)
+	h.d.clock = sched.RealClock()
+	h.d.loop = sched.New(h.d.clock, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- h.d.Run(ctx, nil) }()
+	buf := make([]byte, 256)
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, _ := conn.Read(buf)
+	if string(buf[:n]) != "READY=1" {
+		t.Errorf("first message %q", buf[:n])
+	}
+	if os.Getenv("NOTIFY_SOCKET") == "" {
+		t.Error("NOTIFY_SOCKET unset: the watchdog would never be fed")
+	}
+	cancel()
+	<-done
+	n, _ = conn.Read(buf)
+	if string(buf[:n]) != "STOPPING=1" {
+		t.Errorf("last message %q", buf[:n])
+	}
 }

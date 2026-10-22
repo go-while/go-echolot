@@ -24,6 +24,7 @@ func TestThesaurus(t *testing.T) {
 	if err := SaveThesaurus(dir, 1, token.KindKey, []byte("new"), t0.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	SaveThesaurus(dir, 1, token.KindKey, []byte("late reply to an older request"), t0.Add(-2*time.Hour))
 	got, _ := os.ReadFile(filepath.Join(dir, "thesaurus", "1.key"))
 	if string(got) != "new" {
 		t.Errorf("1.key = %q", got)

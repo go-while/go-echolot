@@ -93,7 +93,7 @@ func TestLock(t *testing.T) {
 	if !errors.As(err, &le) || le.PID != os.Getpid() || le.Dir != dir {
 		t.Fatalf("second Open: %v", err)
 	}
-	if want := "already running (pid "; !strings.Contains(err.Error(), want) {
+	if want := "another go-echolot command (pid "; !strings.Contains(err.Error(), want) {
 		t.Errorf("message %q", err)
 	}
 	if err := s.Close(); err != nil {
@@ -103,6 +103,25 @@ func TestLock(t *testing.T) {
 		t.Errorf("second Close: %v", err)
 	}
 	open(t, dir)
+}
+
+func TestMarkDaemon(t *testing.T) {
+	dir := t.TempDir()
+	s := open(t, dir)
+	var le *LockedError
+	if _, err := Open(dir, nil); !errors.As(err, &le) || le.Daemon || !strings.Contains(err.Error(), "another go-echolot command") {
+		t.Errorf("before MarkDaemon: %v", err)
+	}
+	if err := s.MarkDaemon(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(dir, nil); !errors.As(err, &le) || !le.Daemon || le.PID != os.Getpid() {
+		t.Errorf("after MarkDaemon: %v", err)
+	}
+	s.Close()
+	if err := s.MarkDaemon(); err == nil {
+		t.Error("MarkDaemon after Close")
+	}
 }
 
 func TestLockedErrorNoPID(t *testing.T) {

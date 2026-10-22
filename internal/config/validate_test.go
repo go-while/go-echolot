@@ -113,6 +113,10 @@ func TestValidateErrors(t *testing.T) {
 		{func(c *Config) { c.Schedule.Tick = 30 * time.Second }, "schedule.tick must be at least 1m"},
 		{func(c *Config) { c.Schedule.Tick = time.Minute + time.Millisecond }, "whole number of seconds"},
 		{func(c *Config) { c.Schedule.PingInterval = 7 * time.Minute }, "schedule.ping_interval must be a multiple of schedule.tick (5m), not 7m0s"},
+		{func(c *Config) {
+			c.Schedule.Tick, c.Schedule.PingInterval, c.Schedule.KeyRequestInterval = 11*time.Minute, 11*time.Minute, 11*time.Minute
+			c.Schedule.ConfRequestInterval, c.Schedule.HelpRequestInterval, c.Schedule.AdminkeyRequestInterval = 11*time.Minute, 11*time.Minute, 11*time.Minute
+		}, "must divide a week"},
 		{func(c *Config) { c.Schedule.KeyRequestInterval = 0 }, "schedule.key_request_interval must be a multiple"},
 		{func(c *Config) { c.Schedule.ConfRequestInterval = -5 * time.Minute }, "schedule.conf_request_interval"},
 		{func(c *Config) { c.Schedule.HelpRequestInterval = time.Minute }, "schedule.help_request_interval"},

@@ -48,6 +48,20 @@ type Spooled struct {
 	Path string
 }
 
+// runningExt marks a command being run.  One left over after a crash
+// isn't run again (at most once); ReadSpool reports and sets it aside.
+const runningExt = ".running"
+
+// Start marks the command as running.  Run it only if Start succeeded;
+// then call Done.
+func (s *Spooled) Start() error {
+	if err := os.Rename(s.Path, s.Path+runningExt); err != nil {
+		return err
+	}
+	s.Path += runningExt
+	return nil
+}
+
 // ReadSpool returns the spooled commands of stateDir, oldest first.  A
 // file that isn't a command is renamed to <name>.bad and reported, so it
 // isn't read again.
@@ -66,8 +80,14 @@ func ReadSpool(stateDir string) ([]Spooled, []error) {
 	)
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if n := e.Name(); e.Type().IsRegular() && !strings.HasPrefix(n, ".") && strings.HasSuffix(n, spoolExt) {
+		n := e.Name()
+		switch {
+		case !e.Type().IsRegular() || strings.HasPrefix(n, "."):
+		case strings.HasSuffix(n, spoolExt):
 			names = append(names, n)
+		case strings.HasSuffix(n, spoolExt+runningExt):
+			errs = append(errs, fmt.Errorf("spooled command %s was interrupted and is not run again", n))
+			os.Rename(filepath.Join(dir, n), filepath.Join(dir, strings.TrimSuffix(n, runningExt)+".interrupted"))
 		}
 	}
 	slices.Sort(names)

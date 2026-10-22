@@ -101,6 +101,13 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	defer closer.Close()
+	// SIGHUP is handled before the lock is taken: a CLI command that finds
+	// the lock signals its holder, and Go's default for SIGHUP is to exit.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
 	st, err := store.Open(cfg.Paths.StateDir, log)
 	if err != nil {
 		return err
@@ -114,11 +121,6 @@ func cmdRun(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
-	hup := make(chan os.Signal, 1)
-	signal.Notify(hup, syscall.SIGHUP)
-	defer signal.Stop(hup)
 	return d.Run(ctx, hup)
 }
 
@@ -202,8 +204,17 @@ func stateCmd(verb string) func(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		defer closer.Close()
+		// Only a daemon is sent SIGHUP, but catch it here anyway, so a
+		// stray one can't kill this command half way.  (A private channel,
+		// not signal.Ignore, which would cancel every other handler.)
+		stray := make(chan os.Signal, 1)
+		signal.Notify(stray, syscall.SIGHUP)
+		defer signal.Stop(stray)
 		st, err := store.Open(cfg.Paths.StateDir, log)
 		var locked *store.LockedError
+		if errors.As(err, &locked) && !locked.Daemon {
+			return err // another command holds it: try again
+		}
 		if errors.As(err, &locked) {
 			if err := app.Spool(cfg.Paths.StateDir, c, now); err != nil {
 				return err

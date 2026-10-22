@@ -209,6 +209,9 @@ func (s Schedule) validate() []error {
 				x.name, formatDuration(s.Tick), x.d))
 		}
 	}
+	if (7*24*time.Hour)%s.Tick != 0 {
+		errs = append(errs, fmt.Errorf("schedule.tick (%s) must divide a week: the resurrection checks are weekly", formatDuration(s.Tick)))
+	}
 	for _, x := range []struct {
 		name string
 		d    time.Duration

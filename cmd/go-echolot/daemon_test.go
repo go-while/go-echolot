@@ -65,9 +65,16 @@ func TestSpoolWhileRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	// Held by another command, not a daemon: no spool, no signal.
+	if code, _, errOut := runCmd("add", "--config", cfg, "yamn@virebent.art"); code != 1 || !strings.Contains(errOut, "try again") {
+		t.Errorf("lock held by a command: %d %q", code, errOut)
+	}
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP) // the "daemon" is this process
 	defer signal.Stop(hup)
+	if err := st.MarkDaemon(); err != nil {
+		t.Fatal(err)
+	}
 	code, out, errOut := runCmd("add", "--config", cfg, "yamn@virebent.art")
 	if code != 0 || !strings.Contains(out, fmt.Sprintf("queued for the running daemon (pid %d)", os.Getpid())) {
 		t.Fatalf("%d %q %q", code, out, errOut)
