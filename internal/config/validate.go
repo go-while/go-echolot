@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -160,6 +161,12 @@ func (m Mail) validate() []error {
 		}
 	}
 	check(m.MaxPerHour >= 1, "mail.max_per_hour must be at least 1, not %d", m.MaxPerHour)
+	if m.TorSocks != "" {
+		host, port, err := net.SplitHostPort(m.TorSocks)
+		n, perr := strconv.Atoi(port)
+		check(err == nil && host != "" && perr == nil && n > 0 && n < 65536,
+			"mail.tor_socks must be host:port, e.g. 127.0.0.1:9050, not %q", m.TorSocks)
+	}
 	switch m.Method {
 	case MethodSendmail:
 		check(isCommand(m.Sendmail), "mail.sendmail must be an absolute path or a command name, not %q", m.Sendmail)

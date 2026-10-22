@@ -1093,6 +1093,7 @@ require_tls = false
 username =
 password_file =
 max_per_hour = 200
+tor_socks =                             # Tor SOCKS host:port for .onion remailers; empty: skip them
 
 [schedule]
 tick = 5m
