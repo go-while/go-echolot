@@ -42,7 +42,7 @@ Contents:
 | Signatures | minisign-compatible Ed25519 detached signatures (`*.minisig`) with a signed trusted comment carrying the file name, time and expiry. |
 | Client cross-check | New yamn `urls.pingers` list, `key_quorum` N-of-M, and per-remailer median stats. Specified in §9.6 so it can be done as an independent yamn PR. |
 | Liveness | `status.json`/`status.txt` in the results dir, a `go-echolot check` exit code, a systemd watchdog, and peer staleness checks between pingers. |
-| Dependencies | Standard library and `golang.org/x/...` only (decision 2026-10-22): `x/crypto` (`nacl/secretbox`, `blake2b` for minisign), `x/sys/unix` (`flock`). HKDF, Ed25519, HMAC, JSON, SMTP and Maildir handling come from the standard library or are our own code. No YAML library, so the config is a small INI format (§10.3). |
+| Dependencies | Standard library and `golang.org/x/...` only (decision 2026-10-22): `x/crypto` (`nacl/secretbox`, `blake2b` for minisign), `x/sys/unix` (`flock`). HKDF, Ed25519, HMAC, JSON, SMTP and Maildir handling come from the standard library or are our own code. No YAML library, so the config is a small INI format (§10.3). One reviewed exception (2026-10-22), not a precedent for other imports: `github.com/dchest/blake2s` v1.0.0 for yamn's keyid, unkeyed BLAKE2s-128, which `x/crypto/blake2s` can't compute (its 128-bit variant needs a key). yamn uses the same package and version (same `go.sum` hash); the review is yamn's ISSUES.md Y-52 ([go-while/yamn#68](https://github.com/go-while/yamn/pull/68)). |
 | Perl Echolot | No further changes (decision 2026-10-22). The go-while/echolot `yamn` branch stays as it is; all new pinger work goes into go-echolot. |
 
 ---
@@ -556,7 +556,7 @@ What yamn sends:
 Both are plain text with no MIME (`Y:quickmail/quickmail.go:44-87`). Before parsing:
 - normalize CRLF to LF;
 - decode a `Content-Transfer-Encoding: quoted-printable/base64` body if present (defensive);
-- undo PGP dash-escaping `^- -` → `-` (`E:Conf.pm:457`).
+- undo PGP dash-escaping: a leading `- ` is removed from every line (RFC 4880; Echolot only handled `^- -`, `E:Conf.pm:457`).
 
 **Summary line** (exactly what yamn clients accept, `Y:keymgr/public.go:343-394`):
 
@@ -564,10 +564,11 @@ Both are plain text with no MIME (`Y:quickmail/quickmail.go:44-87`). Before pars
 ^([a-z0-9]{1,12}) (\S+@\S+) ([0-9a-f]{32}) (\S+) (\S+) (\d{4}-\d{2}-\d{2}) (\d{4}-\d{2}-\d{2})$
 ```
 
-- Exactly 7 single-space fields.
+- Exactly 7 fields from splitting on single spaces, as yamn's `readPubring`: a line with a double space is not a summary line. (Changed 2026-10-22 from "runs of whitespace accepted": accept exactly what yamn clients accept, never more.) No field may be empty; version and caps are printable ASCII.
+- The name is `[a-z0-9]+` of any length on read, as yamn's `ValidName`; upper case is rejected, not lower-cased. The address must pass yamn's `ValidAddress` (≤ 52 bytes, printable, none of `"(),:;<>[\]`).
 - The caps field holds `E`/`M` (`Y:keymgr/secret.go:177-183`).
-- The 12-character nick limit is ours. It guarantees `mlist2.txt` rows match (§2.2).
-- Lenient input: runs of whitespace are accepted on read, but the line is *re-serialized* canonically for output. Echolot copied it verbatim.
+- The 12-character nick limit is ours: longer nicks are *quarantined* by the key policy, never published automatically. It guarantees `mlist2.txt` rows match (§2.2).
+- The line is *re-serialized* canonically for output. Echolot copied it verbatim.
 
 **Key block:**
 
@@ -584,7 +585,7 @@ A key is accepted only if all of these hold:
 - `created ≤ today(UTC)` and `expires ≥ today` (Echolot's rules, `E:Conf.pm:339-346`), plus `expires > created` and `expires − created ≤ 400 d`;
 - the summary address equals the remailer's address. The domain is compared case-insensitively; Echolot compared exactly (`E:Conf.pm:348`).
 
-The reply may contain 0..n summary lines and blocks; they are paired by keyid. Unmatched lines are logged. Lines naming *other* addresses become Suggestions only (§9.3), never additions.
+The reply may contain 0..n summary lines and blocks; they are paired in order by yamn's state machine (summary line, Begin, keyid, key, End). Where yamn would pair a line with the wrong block, both keys are dropped and logged. Lines naming *other* addresses become Suggestions only (§9.3), never additions.
 
 **Conf reply:**
 - `Remailer-Type: (.*)` (`E:Conf.pm:138`);
@@ -758,7 +759,7 @@ N = period / 5 min, session = floor(t / period)
 
 **Proven(k):** `k.ProvenAt` is set, i.e. a ping encrypted to k came back (§9.2). Required for publishing unless `keys.require_proof: false`. Pinging only needs Valid.
 
-**Publishable(rem):** among *valid* and *proven* keys, order by:
+**Publishable(rem):** among *valid* and *proven* keys whose nick and address match the remailer's pins (so a key yamn's self-check would flag, §9.7, is never published; an unpinned remailer publishes nothing), order by:
 1. `LastSeen` (token time) descending, i.e. the key the remailer advertised most recently;
 2. then `Created` descending;
 3. then `Expires` descending;
@@ -1345,7 +1346,7 @@ Zax (Steve Crook) posted it to alt.privacy.anon-server on 2019-06-02, Message-ID
 
 - **No more Perl.** The patched Perl Echolot stays as it is (go-while/echolot, branch `yamn`). No new features go there, including Y-03 work. The open crooks/echolot PR #1 is left as it is.
 - **Proof of possession** is part of the design (§1, §8.4, §9.2, questions 17–18).
-- **Dependencies:** standard library and `golang.org/x/...` only. The config is INI-style instead of YAML (§10.3, question 19); `civil.Date` is our own type (§4).
+- **Dependencies:** standard library and `golang.org/x/...` only, plus `github.com/dchest/blake2s` for keyids (reviewed exception, §1). The config is INI-style instead of YAML (§10.3, question 19); `civil.Date` is our own type (§4).
 - **yamn side:** see §9.6 status and §9.7. Merged since the first draft:
   - #30, #52 (multi-pinger cross-check, stats quorum);
   - #64 (per-domain MX delivery: pings to exits with several recipients are no longer affected);
