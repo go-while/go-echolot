@@ -209,3 +209,40 @@ func TestImportErrors(t *testing.T) {
 		t.Error("missing file")
 	}
 }
+
+// TestImportReplacedKey: stock Echolot doesn't check that a keyid matches
+// its key, so a forged reply with the same keyid but another key replaces
+// the stored key, and the ping history stays with the keyid.  Those pings
+// were encrypted to the old key; they must not prove the new one.  The
+// import checks keyid = BLAKE2s(key) before a key gets any history or
+// proof (review 2026-10-22).
+func TestImportReplacedKey(t *testing.T) {
+	opt, ks := echolotDir(t)
+	var md map[string]any
+	data, _ := os.ReadFile(opt.Metadata)
+	json.Unmarshal(data, &md)
+	y, other := ks["yamn"], ks["yamn2"]
+	k := md["remailers"].(map[string]any)["yamn@mixmin.net"].(map[string]any)["keys"].(map[string]any)["mix"].(map[string]any)[y.KeyID].(map[string]any)
+	// Same keyid everywhere, yamn2's public key in the block.
+	k["key"] = fmt.Sprintf("-----Begin Mix Key-----\n%s\n%x\n-----End Mix Key-----", y.KeyID, other.PK)
+	data, _ = json.Marshal(md)
+	os.WriteFile(opt.Metadata, data, 0o600)
+
+	st, _ := store.Open(t.TempDir(), nil)
+	defer st.Close()
+	rep, err := Import(st, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(rep.Problems, "\n"), "is not BLAKE2s of the public key") {
+		t.Errorf("not reported: %q", rep.Problems)
+	}
+	st.View(func(s *store.State) {
+		if k := s.Remailers["yamn@mixmin.net"].Keys[y.KeyID]; k != nil {
+			t.Errorf("replaced key imported: %+v", k)
+		}
+	})
+	if out, done := st.Pings("yamn@mixmin.net", time.Time{}); len(out)+len(done) != 0 || rep.Done != 0 {
+		t.Errorf("history of the replaced key imported: out %d done %d", len(out), len(done))
+	}
+}
