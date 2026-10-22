@@ -63,6 +63,17 @@ type ConfReply struct {
 // (Y:keymgr/secret.go:18).
 const maxAddressLen = 52
 
+// Limits on the other fields that reach published files.  yamn reads
+// pubring.mix and mlist2.txt with bufio.Scanner, whose line limit is
+// 64 KiB: one longer line makes a client drop the whole file.  Live
+// values are short ("victor", "4:0.2.6", "E", "middle v2").
+const (
+	maxNickLen    = 32  // nicks over 12 are quarantined by the keys policy
+	maxFieldLen   = 32  // version and caps of a summary line
+	maxOptionsLen = 128 // options of a conf caps line
+	maxTypeLen    = 64  // Remailer-Type
+)
+
 // ValidName reports whether name can be a remailer name, as yamn's
 // ValidName: lower-case letters and digits, not empty.  Upper case is
 // rejected, not lower-cased.  yamn has no length limit.

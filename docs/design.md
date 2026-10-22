@@ -568,6 +568,7 @@ Both are plain text with no MIME (`Y:quickmail/quickmail.go:44-87`). Before pars
 - The name is `[a-z0-9]+` of any length on read, as yamn's `ValidName`; upper case is rejected, not lower-cased. The address must pass yamn's `ValidAddress` (≤ 52 bytes, printable, none of `"(),:;<>[\]`).
 - The caps field holds `E`/`M` (`Y:keymgr/secret.go:177-183`).
 - The 12-character nick limit is ours: longer nicks are *quarantined* by the key policy, never published automatically. It guarantees `mlist2.txt` rows match (§2.2).
+- Length limits (added 2026-10-22): nick ≤ 32 bytes, version and caps ≤ 32 bytes each; in a conf reply, options ≤ 128 and Remailer-Type ≤ 64. yamn reads `pubring.mix` and `mlist2.txt` with `bufio.Scanner`, whose line limit is 64 KiB: a single longer line makes `readPubring` fail and the client drops the *whole* keyring. Live values are a few bytes ("4:0.2.6", "E", "middle v2").
 - The line is *re-serialized* canonically for output. Echolot copied it verbatim.
 
 **Key block:**
@@ -599,6 +600,8 @@ Caps that matter: `middle`, and `v2`. Everything else goes into the options stri
 ---
 
 ## 7. Output files (byte-exact)
+
+Every writer refuses to write a line longer than 1 KiB (`pubring.mix`, `type2.list`, `mlist2.txt`, `mlist.txt`): yamn clients read these files with `bufio.Scanner` (64 KiB per line), and one overlong line loses the whole file for every client. The input limits of §6.4 keep real lines far below that; the writer check is the second line of defence.
 
 Echolot doesn't write atomically (`E:Stats.pm:302-310`). We write every file via tmp + rename. The public directory gets only `list-it` remailers; the private directory gets all of them (`E:Stats.pm:683-687, 829-839`). Here, `list-it` means `ShowIt && Conf != nil && Caps !~ /\btesting\b/i` (`E:Stats.pm:491, 822`).
 
