@@ -32,6 +32,9 @@ func FuzzParseKey(f *testing.F) {
 			if !ValidName(k.Nick) || !ValidAddress(k.Address) {
 				t.Fatalf("invalid name or address: %q %q", k.Nick, k.Address)
 			}
+			if len(k.String()) > 1024 {
+				t.Fatalf("summary line of %d bytes", len(k.String()))
+			}
 			s, err := ParseSummary(k.String())
 			if err != nil || s != k.SummaryLine {
 				t.Fatalf("%q doesn't parse back: %+v, %v", k.String(), s, err)
@@ -50,6 +53,9 @@ func FuzzParseConf(f *testing.F) {
 		c, err := ParseConf(in)
 		if err != nil {
 			return
+		}
+		if len(c.Caps) > 1024 || len(c.Type) > 1024 {
+			t.Fatalf("caps line of %d bytes, type of %d", len(c.Caps), len(c.Type))
 		}
 		c2, err := ParseConf([]byte(c.Caps))
 		if err != nil {

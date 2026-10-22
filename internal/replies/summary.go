@@ -10,8 +10,9 @@ import (
 
 // ParseSummary parses a key header line as yamn's readPubring does
 // (Y:keymgr/public.go): strings.Split on single spaces must give exactly
-// seven fields.  Stricter than yamn: no field may be empty, and version
-// and caps must be printable ASCII.  The keyid may be upper case (yamn's
+// seven fields.  Stricter than yamn: no field may be empty, version and
+// caps must be printable ASCII, and nick, version and caps have length
+// limits (see maxFieldLen).  The keyid may be upper case (yamn's
 // hex.DecodeString takes it) and is returned in lower case.
 func ParseSummary(line string) (SummaryLine, error) {
 	return parseFields(strings.Split(line, " "))
@@ -25,6 +26,9 @@ func isSummaryShape(line string) bool {
 func parseFields(f []string) (SummaryLine, error) {
 	if len(f) != 7 {
 		return SummaryLine{}, fmt.Errorf("summary line has %d fields, want 7", len(f))
+	}
+	if len(f[0]) > maxNickLen {
+		return SummaryLine{}, fmt.Errorf("remailer name is longer than %d bytes", maxNickLen)
 	}
 	if !ValidName(f[0]) {
 		return SummaryLine{}, fmt.Errorf("invalid remailer name %q", f[0])
@@ -41,6 +45,11 @@ func parseFields(f []string) (SummaryLine, error) {
 	keyid, ok := hexID(f[2])
 	if !ok {
 		return SummaryLine{}, fmt.Errorf("%s: keyid %q is not 32 hex digits", nick, f[2])
+	}
+	for i, name := range []string{"version", "caps"} {
+		if v := f[3+i]; len(v) > maxFieldLen {
+			return SummaryLine{}, fmt.Errorf("%s: %s is longer than %d bytes", nick, name, maxFieldLen)
+		}
 	}
 	if !printable(f[3]) {
 		return SummaryLine{}, fmt.Errorf("%s: invalid version %q", nick, f[3])

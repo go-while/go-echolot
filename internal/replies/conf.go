@@ -38,7 +38,7 @@ func ParseConf(body []byte) (*ConfReply, error) {
 			inList = true
 		case c.Type == "" && hasPrefixFold(strings.TrimSpace(line), "Remailer-Type:"):
 			t := strings.TrimSpace(strings.TrimSpace(line)[len("Remailer-Type:"):])
-			if printableText(t) {
+			if len(t) <= maxTypeLen && printableText(t) {
 				c.Type = t
 			}
 		case !haveCaps:
@@ -59,11 +59,11 @@ func ParseConf(body []byte) (*ConfReply, error) {
 // options are returned with runs of white space made single spaces.
 func parseCaps(line string) (nick, addr, opts string, ok bool) {
 	m := capsLine.FindStringSubmatch(line)
-	if m == nil || !ValidName(m[1]) || !ValidAddress(m[2]) {
+	if m == nil || len(m[1]) > maxNickLen || !ValidName(m[1]) || !ValidAddress(m[2]) {
 		return "", "", "", false
 	}
 	opts = strings.Join(strings.Fields(m[3]), " ")
-	if opts != "" && !printableText(opts) {
+	if len(opts) > maxOptionsLen || opts != "" && !printableText(opts) {
 		return "", "", "", false
 	}
 	return m[1], m[2], opts, true
