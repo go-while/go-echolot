@@ -432,7 +432,7 @@ go-echolot import-echolot --metadata metadata.json --datadir ~/echolot/data \
 **Import rules:**
 - Keep IDs and `addresses_maxid`, so in-flight `conf.<id>` tokens still resolve.
 - Import `secret` into `state_dir/legacy_secret`, with its end: import time + 48 h. Until then, accept Echolot MD5 tokens: `md5_hex("<type>.<id>=<time>"+secret)[:8]` (`E:Tools.pm:94-145`). This applies to request replies only. `compat.legacy_md5_tokens_until`, if set, overrides the end.
-- Keys: parse `summary` and `key` with the yamn rules. Drop and report keys that fail keyid = BLAKE2s(pk). The nick from the conf becomes the pinned nick if it matches the key nick, and is quarantined otherwise.
+- Keys: parse `summary` and `key` with the yamn rules. Drop and report keys that fail keyid = BLAKE2s(pk). This check comes before a key gets any ping history or proof: stock Echolot doesn't check it, so a forged reply with the same keyid but another key replaces the stored key while the pings (encrypted to the old key, `E:Pinger/Mix.pm:46`) stay with the keyid. The nick from the conf becomes the pinned nick if it matches the key nick, and is quarantined otherwise.
 - Pings (all counted in the stats: Echolot published their keys):
   - import all `done` records; the first one of each key also proves that key (§9.2), since Echolot's ping was encrypted to it, so the imported keyring isn't empty until new pings return;
   - import `out` records older than 24 h, as genuine losses;
