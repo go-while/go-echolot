@@ -2,7 +2,7 @@
 
 A pinger for the [yamn](https://github.com/crooks/yamn) remailer network, in Go. It is meant to replace the patched Perl [Echolot](https://github.com/crooks/echolot) that today's yamn pingers run.
 
-**Status: early development.** The design is done; the code so far is the config file parser (step 1 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot doesn't ping anything yet.
+**Status: early development.** The design is done; the code so far is the config file parser and the state store (steps 1–2 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot doesn't ping anything yet.
 
 A pinger:
 - collects each remailer's key and capabilities by mail (`remailer-key`, `remailer-conf`);
@@ -31,6 +31,8 @@ A pinger:
 
 - `cmd/go-echolot/`: the command. So far `dumpconf` (check a config file and print it with the defaults) and `version`.
 - `internal/config/`: the INI-style config parser, defaults and validation.
+- `internal/store/`: the state dir: `state.json`, the `pings.jsonl` journal, the secret and the lock.
+- `internal/fileutil/`: atomic file writes. `internal/civil/`: calendar dates for key validity.
 - `examples/config.ini`: an example config that documents every key.
 - `tools/golden/`: a harness that runs Echolot's unmodified `Stats.pm` on synthetic ping data, so go-echolot's stats can be tested against Echolot's numbers. See its [README](tools/golden/README.md).
 - `testdata/golden/case1/`: the harness's first input and output.
