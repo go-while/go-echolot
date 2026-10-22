@@ -83,7 +83,7 @@ func TestLiveEndToEnd(t *testing.T) {
 			t.Errorf("%s: %d public, %d private keys", name, len(public), len(private))
 		}
 		dir := t.TempDir()
-		if _, err := WriteKeyrings(dir, public, now, true, time.Hour); err != nil {
+		if _, err := WriteKeyrings(dir, public, now, true, time.Hour, nil); err != nil {
 			t.Fatal(err)
 		}
 		got, _ := os.ReadFile(filepath.Join(dir, "pubring.mix"))
@@ -168,12 +168,12 @@ func TestPubringRefuses(t *testing.T) {
 func TestLongLine(t *testing.T) {
 	_, ks := live(t, "mixmin")
 	dir := t.TempDir()
-	if _, err := WriteKeyrings(dir, ks, now, false, 0); err != nil {
+	if _, err := WriteKeyrings(dir, ks, now, false, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(filepath.Join(dir, "pubring.mix"))
 	ks[2].Caps = strings.Repeat("E", MaxLineLen) // the parser limits caps; the writer is the second defence
-	if _, err := WriteKeyrings(dir, ks, now, false, 0); err == nil || !strings.Contains(err.Error(), "more than 1024") {
+	if _, err := WriteKeyrings(dir, ks, now, false, 0, nil); err == nil || !strings.Contains(err.Error(), "more than 1024") {
 		t.Errorf("got %v", err)
 	}
 	if after, _ := os.ReadFile(filepath.Join(dir, "pubring.mix")); !bytes.Equal(before, after) {
@@ -190,14 +190,14 @@ func TestLongLine(t *testing.T) {
 func TestWriteKeyrings(t *testing.T) {
 	_, ks := live(t, "victor")
 	dir := t.TempDir()
-	changed, err := WriteKeyrings(dir, ks, now, true, time.Hour)
+	changed, err := WriteKeyrings(dir, ks, now, true, time.Hour, nil)
 	if err != nil || !changed {
 		t.Fatalf("first write: %v, %v", changed, err)
 	}
 	ring := filepath.Join(dir, "pubring.mix")
 	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	os.Chtimes(ring, old, old)
-	changed, err = WriteKeyrings(dir, ks, now.Add(time.Hour), true, time.Hour)
+	changed, err = WriteKeyrings(dir, ks, now.Add(time.Hour), true, time.Hour, nil)
 	if err != nil || changed {
 		t.Errorf("unchanged keys: changed %v, %v", changed, err)
 	}
@@ -213,14 +213,14 @@ func TestWriteKeyrings(t *testing.T) {
 	if fi, _ := os.Stat(ring); fi.Mode().Perm() != 0o644 {
 		t.Errorf("mode %v", fi.Mode())
 	}
-	changed, err = WriteKeyrings(dir, ks[1:], now, true, time.Hour)
+	changed, err = WriteKeyrings(dir, ks[1:], now, true, time.Hour, nil)
 	if err != nil || !changed {
 		t.Errorf("one key less: changed %v, %v", changed, err)
 	}
 
 	// No keys: empty files, which yamn refuses to download (§7.1).
 	dir = t.TempDir()
-	if _, err := WriteKeyrings(dir, nil, now, false, 0); err != nil {
+	if _, err := WriteKeyrings(dir, nil, now, false, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"pubring.mix", "type2.list"} {

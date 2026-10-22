@@ -2,7 +2,7 @@
 
 A pinger for the [yamn](https://github.com/crooks/yamn) remailer network, in Go. It is meant to replace the patched Perl [Echolot](https://github.com/crooks/echolot) that today's yamn pingers run.
 
-**Status: phases 2 (pings → mlist2) and 3 (chain pings, HTML) are in place** (steps 1–8 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot requests keys and confs from the remailers you add, pings every key through the `yamn` binary, publishes a key only after a ping to it came back (proof of possession), and writes `pubring.mix`, `type2.list`, `mlist2.txt` and `mlist.txt`. `go-echolot import-echolot` takes over an Echolot pinger's remailers, keys, ping history and thesaurus (§5.5). Still to come in phase 2: the 14-day side-by-side run against mixmin's pinger (§12.2) before its files are announced.
+**Status: phases 2 (pings → mlist2) and 3 (chain pings, HTML) are in place, and phase 4's signed outputs** (the plan in [docs/design.md §12](docs/design.md#12-phased-plan-sizes-first-prs)). go-echolot requests keys and confs from the remailers you add, pings every key through the `yamn` binary, publishes a key only after a ping to it came back (proof of possession), and writes `pubring.mix`, `type2.list`, `mlist2.txt` and `mlist.txt`. `go-echolot import-echolot` takes over an Echolot pinger's remailers, keys, ping history and thesaurus (§5.5). With `[signing] enabled`, the published files carry minisign signatures (`go-echolot keygen`, §9.5). Still to come: phase 4's peer checks and health notifications (§10.2), and phase 2's 14-day side-by-side run against mixmin's pinger (§12.2) before its files are announced.
 
 A pinger:
 - collects each remailer's key and capabilities by mail (`remailer-key`, `remailer-conf`);
@@ -24,12 +24,12 @@ A pinger:
 - **Trust (yamn issue Y-03):**
   - **Proof of possession:** a key is published only after a ping encrypted to it has come back.
   - **Quarantine:** an unexpected key, name or address change waits 24 h or for operator approval.
-  - **Signatures:** output files carry minisign-compatible Ed25519 signatures.
+  - **Signatures:** `pubring.mix`, `type2.list` and `mlist2.txt` carry minisign signatures (`<file>.minisig`, Ed25519) whose trusted comment names the file, the time and an expiry; timestamps never go backwards, so clients can refuse a rollback. `minisign -Vm pubring.mix -P <key>` checks them.
   - **yamn's own checks:** yamn clients already cross-check several pingers (`urls.pingers`, `key_quorum`), and yamn remailers warn when a pinger publishes a key that isn't theirs.
 
 ## Repository contents
 
-- `cmd/go-echolot/`: the command: `run`, `deliver`, `add`/`delete`/`enable`/`disable`/`set`, `approve`/`reject`, `getkeyconf`, `buildkeys`, `status`, `keys`, `dumpconf`, `version` (`go-echolot help`). Commands that change the state go to the running daemon through a spool and SIGHUP.
+- `cmd/go-echolot/`: the command: `run`, `deliver`, `add`/`delete`/`enable`/`disable`/`set`, `approve`/`reject`, `getkeyconf`, `buildkeys`, `sendpings`, `sendchainpings`, `buildstats`, `status`, `keys`, `import-echolot`, `keygen`/`sign`/`verify`, `dumpconf`, `version` (`go-echolot help`). Commands that change the state go to the running daemon through a spool and SIGHUP.
 - `internal/app/`: the daemon (jobs, reply handling), the operator commands, the spool and the thesaurus of raw replies.
 - `internal/mailin/`, `internal/mailout/`: Maildir intake and `deliver`; sendmail, SMTP (verified TLS, per-command timeouts) and Tor for .onion remailers.
 - `internal/sched/`, `internal/sdnotify/`: the slot scheduler and job loop; systemd notification and watchdog.
@@ -42,6 +42,7 @@ A pinger:
 - `internal/stats/`: Echolot's `calculate()`, ported exactly and tested against Echolot's own output (`testdata/golden/`, `make golden`).
 - `internal/chain/`: chain pings: which pairs, when, and which chains are broken (with golden tests from Echolot).
 - `internal/pinger/`: the ping body (NaCl secretbox, MAC), the encoder that runs `yamn -m --stdout` with its own config and a one-key keyring per ping, and the receive side.
+- `internal/minisign/`: minisign keys and signatures (compatible with the reference tool) and the trusted comment that yamn checks.
 - `internal/blake2s/`: yamn's keyid (unkeyed BLAKE2s-128).
 - `internal/fileutil/`: atomic file writes. `internal/civil/`: calendar dates for key validity.
 - `examples/config.ini`: an example config that documents every key.
@@ -50,6 +51,7 @@ A pinger:
 - `testdata/golden/case1..5/`: inputs and Echolot's output for the stats tests: the edge cases of design §11, `sort_by_latency`, 7 stats days, no remailers.
 - `testdata/replies/`: a real yamn `remailer-key` and `remailer-conf` reply from victor's remailer (`yamn@virebent.art`), as stored by mixmin's pinger, for the reply parsers.
 - `testdata/pubrings/`: the live `pubring.mix` of the mixmin, victor and frell pingers, fetched 2026-10-22 (6, 6 and 7 keys; every keyid checked against BLAKE2s-128). Frell's still lists middleman's key, which expired on 2026-10-19.
+- `testdata/signing/`: signing test vectors shared with yamn's verifier: a test key, `pubring.mix` and `mlist2.txt` signed by go-echolot and by the reference minisign tool. See its [README](testdata/signing/README.md).
 - `testdata/echolot-import/`: a synthetic Echolot metadata file, for the import of an Echolot data directory.
 
 ## Building
@@ -61,6 +63,8 @@ go build ./cmd/go-echolot
 go test -race ./...
 # with the real yamn binary (client and remailer round trips):
 (cd ../yamn && go build -o /tmp/yamn .) && YAMN_BIN=/tmp/yamn go test -run Yamn ./internal/pinger ./internal/app
+# against the reference minisign tool (Debian: apt install minisign):
+MINISIGN_BIN=$(command -v minisign) go test -run Minisign ./internal/minisign
 ```
 
 ## License

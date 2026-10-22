@@ -158,7 +158,7 @@ func TestGoldenChains(t *testing.T) {
 		}{{"priv", rows, priv}, {"pub", output.Public(rows), pub}} {
 			out := t.TempDir()
 			sec := output.Sections{SameOp: sameop, Broken1: &b1, Broken2: &set.broken2}
-			if err := output.WriteStats(out, set.rows, sec, now, false, false); err != nil {
+			if err := output.WriteStats(out, set.rows, sec, now, false, false, nil); err != nil {
 				t.Fatal(err)
 			}
 			for _, name := range []string{"mlist2.txt", "mlist.txt"} {

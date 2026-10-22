@@ -148,6 +148,8 @@ func TestValidateErrors(t *testing.T) {
 		{func(c *Config) { c.Signing.Enabled, c.Signing.Files = true, nil }, "signing.files must not be empty"},
 		{func(c *Config) { c.Signing.Files = []string{"pubring.mix", "rlist2.txt"} }, `signing.files: "rlist2.txt" isn't an output file`},
 		{func(c *Config) { c.Signing.Files = []string{"mlist2.txt", "mlist2.txt"} }, `signing.files: "mlist2.txt" twice`},
+		{func(c *Config) { c.Signing.Enabled, c.Schedule.StatsInterval = true, 2*time.Hour }, "schedule.stats_interval must be at most 1h0m0s when signing"},
+		{func(c *Config) { c.Signing.Enabled, c.Schedule.PubringCheckInterval = true, 2*time.Hour }, "schedule.pubring_check_interval must be at most 1h0m0s when signing"},
 
 		{func(c *Config) { c.Health.Notify = "remops" }, "health.notify must be a plain address"},
 

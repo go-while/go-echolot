@@ -104,8 +104,9 @@ func Keyrings(st *store.State, now time.Time, requireProof bool) (public, privat
 // WriteKeyrings writes pubring.mix and type2.list for ks into dir, each
 // only if its content changed, and their .meta files if meta is set.  It
 // reports whether pubring.mix changed.  Nothing is written if a check
-// fails.
-func WriteKeyrings(dir string, ks []replies.ParsedKey, now time.Time, meta bool, metaExpiry time.Duration) (changed bool, err error) {
+// fails.  Each file is signed with sign after it's written (nil: none),
+// also when it didn't change, so its signature stays fresh.
+func WriteKeyrings(dir string, ks []replies.ParsedKey, now time.Time, meta bool, metaExpiry time.Duration, sign SignFunc) (changed bool, err error) {
 	ring, err := Pubring(ks)
 	if err != nil {
 		return false, err
@@ -124,7 +125,13 @@ func WriteKeyrings(dir string, ks []replies.ParsedKey, now time.Time, meta bool,
 	if changed, err = writeIfChanged(dir, "pubring.mix", ring); err != nil {
 		return false, err
 	}
+	if err := writeSignature(dir, "pubring.mix", ring, sign); err != nil {
+		return changed, err
+	}
 	if _, err := writeIfChanged(dir, "type2.list", list); err != nil {
+		return changed, err
+	}
+	if err := writeSignature(dir, "type2.list", list, sign); err != nil {
 		return changed, err
 	}
 	if meta {

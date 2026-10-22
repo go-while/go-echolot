@@ -256,12 +256,13 @@ func (d *Daemon) BuildStats(at time.Time) {
 		dir  string
 		rows []output.Row
 		sec  output.Sections
-	}{{d.cfg.Paths.PrivateResultsDir, rows, privSec}, {d.cfg.Paths.ResultsDir, output.Public(rows), pubSec}} {
+		sign output.SignFunc
+	}{{d.cfg.Paths.PrivateResultsDir, rows, privSec, nil}, {d.cfg.Paths.ResultsDir, output.Public(rows), pubSec, d.signer.sign(at)}} {
 		if err := os.MkdirAll(w.dir, 0o755); err != nil {
 			d.log.Error("stats", "dir", w.dir, "err", err)
 			continue
 		}
-		if err := output.WriteStats(w.dir, w.rows, w.sec, at, d.cfg.Stats.SortByLatency, d.cfg.Compat.MetaFiles); err != nil {
+		if err := output.WriteStats(w.dir, w.rows, w.sec, at, d.cfg.Stats.SortByLatency, d.cfg.Compat.MetaFiles, w.sign); err != nil {
 			d.log.Error("stats not written", "dir", w.dir, "err", err)
 		}
 	}
@@ -271,7 +272,8 @@ func (d *Daemon) BuildStats(at time.Time) {
 		d.log.Error("thesaurus", "err", err)
 	}
 	err = output.WriteHTML(d.cfg.Paths.ResultsDir, output.Pages{
-		Site:     output.Site{Name: d.cfg.Pinger.Sitename, Operator: d.cfg.Pinger.OperatorAddress, Version: d.Version},
+		Site: output.Site{Name: d.cfg.Pinger.Sitename, Operator: d.cfg.Pinger.OperatorAddress, Version: d.Version,
+			PingerKey: d.signer.pingerKey()},
 		Rows:     rows,
 		Sections: pubSec, SortByLatency: d.cfg.Stats.SortByLatency,
 		Remailers: htmlRems, Replies: replies, Meta: d.cfg.Compat.MetaFiles,

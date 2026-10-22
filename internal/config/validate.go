@@ -23,6 +23,10 @@ const maxTokenSuffix = len("adminkey.") + 6 + 1 + 10 + 1 + 16
 // is at most this many hex digits.
 const maxRandomGarbage = 8192
 
+// maxSignInterval is the longest a signed file may go without being
+// re-signed.
+const maxSignInterval = time.Hour
+
 // signableFiles are the output files signing.files may name.
 var signableFiles = []string{"pubring.mix", "type2.list", "mlist2.txt", "mlist.txt"}
 
@@ -92,6 +96,14 @@ func (c *Config) Validate() error {
 	for i, f := range g.Files {
 		check(slices.Contains(signableFiles, f), "signing.files: %q isn't an output file; use %s", f, strings.Join(signableFiles, ", "))
 		check(!slices.Contains(g.Files[:i], f), "signing.files: %q twice", f)
+	}
+	// Signatures are re-made when the files are (design §9.5): hourly
+	// keeps them far from expiring (mlist2.txt's after 6 h).
+	if g.Enabled {
+		check(c.Schedule.StatsInterval <= maxSignInterval,
+			"schedule.stats_interval must be at most %s when signing is enabled, not %s", maxSignInterval, c.Schedule.StatsInterval)
+		check(c.Schedule.PubringCheckInterval <= maxSignInterval,
+			"schedule.pubring_check_interval must be at most %s when signing is enabled, not %s", maxSignInterval, c.Schedule.PubringCheckInterval)
 	}
 
 	check(c.Health.Notify == "" || isBareAddress(c.Health.Notify),

@@ -205,7 +205,7 @@ func TestGoldenLists(t *testing.T) {
 			rows []Row
 		}{{"priv", rows}, {"pub", Public(rows)}} {
 			out := t.TempDir()
-			if err := WriteStats(out, set.rows, sec, now, byLat, true); err != nil {
+			if err := WriteStats(out, set.rows, sec, now, byLat, true, nil); err != nil {
 				t.Fatal(err)
 			}
 			for _, name := range []string{"mlist2.txt", "mlist.txt"} {
@@ -244,7 +244,7 @@ func TestWriteStatsRefuses(t *testing.T) {
 		"newline caps": {[]Row{{Nick: "a", Caps: "c\nd"}}, Sections{}},
 	} {
 		dir := t.TempDir()
-		if err := WriteStats(dir, c.rows, c.sec, now, false, true); err == nil {
+		if err := WriteStats(dir, c.rows, c.sec, now, false, true, nil); err == nil {
 			t.Errorf("%s: no error", name)
 		}
 		if ents, _ := os.ReadDir(dir); len(ents) != 0 {
@@ -253,7 +253,7 @@ func TestWriteStatsRefuses(t *testing.T) {
 	}
 	// The longest allowed line is fine.
 	caps := `$remailer{"a"} = "<a@b> ` + long[:MaxLineLen-26] + `";`
-	if err := WriteStats(t.TempDir(), []Row{{Nick: "a", Caps: caps}}, Sections{}, now, false, false); err != nil || len(caps) != MaxLineLen {
+	if err := WriteStats(t.TempDir(), []Row{{Nick: "a", Caps: caps}}, Sections{}, now, false, false, nil); err != nil || len(caps) != MaxLineLen {
 		t.Error(err, len(caps))
 	}
 }

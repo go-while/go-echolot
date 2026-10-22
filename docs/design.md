@@ -889,7 +889,7 @@ Reasons:
 
 ### 9.5 Signed outputs
 
-**Format:** minisign-compatible detached signatures, `<file>.minisig`, Ed25519.
+**Format:** minisign-compatible detached signatures, `<file>.minisig`, Ed25519 (`internal/minisign`).
 
 Why minisign and not a new format:
 - existing tooling (`minisign -Vm pubring.mix -P <key>`) lets humans verify;
@@ -898,21 +898,48 @@ Why minisign and not a new format:
 
 ```
 untrusted comment: go-echolot signature
-<base64: "ED" || keyid[8] || sig[64]>          sig over BLAKE2b-512(file)  (prehashed variant)
-trusted comment: timestamp:1792560000 file:pubring.mix pinger:mixmin expires:1792603200 sha256:<hex>
+<base64: "ED" || keyid[8] || sig[64]>          sig over BLAKE2b-512(file)  (prehashed, minisign's default)
+trusted comment: timestamp:1792670400 file:pubring.mix pinger:mixmin expires:1792843200
 <base64: global sig[64] over (sig || trusted comment)>
 ```
 
-- `expires`:
-  - `pubring.mix`: timestamp + 48 h;
-  - `mlist2.txt`: + 6 h;
-  - re-signed whenever the file is written, or hourly.
-- **Key publication:**
-  - `pinger.pub` (minisign public-key format) in the results directory;
-  - its fingerprint on the pinger's HTML page;
-  - the key and fingerprint listed in the yamn repo (`doc/pingers.md`) through a reviewed PR. This is the trust anchor; HTTPS of the pinger is not.
-  - Key rotation: the new key is signed with the old (`pinger.pub.minisig`), and the doc PR is updated.
-- **go-echolot side:** `go-echolot keygen`; `signing.enabled`; files `[pubring.mix, type2.list, mlist2.txt]`.
+**The trusted comment is the contract with yamn's verifier:**
+
+```
+trusted = pair *( SP pair )            ; exactly one space between pairs, none before or after
+pair    = key ":" value                ; any order; each key at most once
+key     = 1*( %x61-7A / DIGIT / "_" )  ; a-z, 0-9, _
+value   = 1*( %x21-7E )                ; printable ASCII, no space (":" allowed)
+```
+
+- **Required:** `timestamp` and `expires`, decimal Unix seconds UTC (digits only, no sign), with `expires` after `timestamp`; `file`, the published file's base name.
+- **Optional:** `pinger`, the pinger's name for people (`pinger.sitename` with every byte outside `%x21-7E` replaced by `_`, at most 64 bytes).
+- A reader **ignores keys it doesn't know**, so more can be added later. There is no `sha256` key: the signature already covers the file (BLAKE2b-512), and a hash in the comment would add nothing.
+- go-echolot writes `timestamp file [pinger] expires` in that order (`minisign.Trusted`); `minisign.ParseTrusted` is the reference parser and `minisign.VerifyFile` the reference check (signature, grammar, `file` equals the name fetched, not expired).
+
+**Timestamps never go backwards** (yamn remembers the newest timestamp it accepted per pinger and file, and refuses older ones):
+- the next timestamp of a file is `max(now, last + 1)`, so strictly increasing per file, also within one second;
+- `last` is saved in `state.json` (`signed`) *before* the signature is published, so a crash can't reuse or lower it;
+- at start, the timestamps of our own signatures already in `results_dir` raise `last` too, so a state dir restored from a backup doesn't go back. Only signatures whose trusted comment verifies with our key count: anyone able to write the results directory could otherwise push the timestamps far into the future;
+- after a clock step back, the timestamps continue from `last + 1` until the clock catches up, and go-echolot logs a warning. (Recovering from a clock that was far in the *future* needs a new key, §9.5 key rotation.)
+
+**Validity and cadence:**
+- `expires`: `pubring.mix` and `type2.list` timestamp + 48 h; `mlist2.txt` (and `mlist.txt`, if listed) + 6 h.
+- Signed whenever written: the stats at every build (`schedule.stats_interval`), the keyrings at every check (`schedule.pubring_check_interval`) even when they didn't change, and after every key change. With signing on, both intervals must be ≤ 1 h.
+- A pinger that's down over 6 h makes clients keep their last mlist2 copy, and yamn's `stats.stale_hours` warns. That's intended.
+- Only `results_dir` is signed (what clients fetch), not `private_results_dir`.
+
+**Publishing order:** the file first, then its `.minisig`, each an atomic rename. A client fetching between the two sees a mismatch and keeps its old copy until the next fetch. A file that's no longer signed (signing turned off, or dropped from `signing.files`) loses its old `.minisig` at its next write, since it would no longer match.
+
+**Keys:**
+- `go-echolot keygen` writes `signing.key_file` (default `<state_dir>/pinger.key`, mode 0600, never overwritten) in minisign's secret key format *without a password* (`minisign -G -W`): the daemon reads it unattended, and like ssh it refuses a key file others may read. minisign itself signs with it, and a key from `minisign -G -W` works in go-echolot.
+- `pinger.pub` (minisign's two-line public key format, `"Ed" || keyid || pk`) is published in `results_dir`. yamn's config takes only its base64 line.
+- The base64 line is shown on the index page.
+- The key and fingerprint are listed in the yamn repo (`doc/pingers.md`) through a reviewed PR. This is the trust anchor; HTTPS of the pinger is not.
+- Key rotation: the new `pinger.pub` is signed with the old key (`go-echolot sign --key old.key --valid 720h pinger.pub` → `pinger.pub.minisig`), and the doc PR is updated.
+- `go-echolot sign [--key] [--valid] FILE…` signs other files (not the daemon's own); `go-echolot verify [--pub KEY|FILE] FILE…` checks files as yamn does.
+
+**Test vectors** (`testdata/signing/`, shared with yamn's verifier tests): a test key, `pinger.pub`, `pubring.mix` and `mlist2.txt`, each signed by go-echolot and by the reference minisign 0.12 tool with the same key and trusted comment. CI installs Debian's `minisign`, verifies go-echolot's signatures with `minisign -Vm`, and runs round trips both ways with new keys (`MINISIGN_BIN`), so the format is proven against the reference tool, not only our own code.
 
 **yamn client verification** (proposed config, single pinger):
 
@@ -931,9 +958,10 @@ Download rule in `httpGet`/`timedURLFetch` (`Y:utils.go:142-167`, `Y:client.go:3
 - the validator passes (as today), and
 - some `pinger_keys` entry verifies the signature, and
 - the trusted comment's `file:` equals the basename, and
-- `now < expires` and `now − timestamp ≤ max_signature_age_hours`.
+- `now < expires` and `now − timestamp ≤ max_signature_age_hours`, and
+- `timestamp` is not older than the newest one accepted from this pinger for this file (rollback).
 
-Otherwise the previous local copy is kept and a warning is logged.
+Otherwise the previous local copy is kept and a warning is logged. A file whose `.minisig` doesn't match yet (fetched between the two writes) is the same case: keep the old copy, try again at the next fetch.
 
 ### 9.6 Client-side multi-pinger cross-check (spec for a yamn PR)
 
@@ -1179,7 +1207,7 @@ New verbs:
 - `approve <addr> [keyid|nick|address]`, `reject …`;
 - `suggestions`;
 - `import-echolot`;
-- `keygen`, `sign <file>`, `verify <file>`;
+- `keygen`, `sign [--key FILE] [--valid DUR] FILE…`, `verify [--pub KEY|FILE] FILE…` (§9.5);
 - `deliver`;
 - `selftest`;
 - `version`.
