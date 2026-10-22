@@ -1,0 +1,21 @@
+Stats-Version: 2.0
+Generated: Wed 21 Oct 2026 08:45:45 GMT
+Mixmaster    Latent-Hist   Latent  Uptime-Hist   Uptime  Options
+------------------------------------------------------------------------
+alpha        000000000000    :07   ++++++++++++  100.0%  D              
+delta        000000000000    :00   ++++++++++++  100.0%  D              
+bravo        112111111111    :37   898787899688   82.6%                 
+foxtrot      HHHHHHHEHEC7  62:29   988787756768   72.0%                 
+charlie      226434267536   3:00   335356653553   50.5%                 
+echo         ????????????  99:59   000000000000    0.0%                 
+
+
+
+Remailer-Capabilities:
+
+$remailer{"alpha"} = "<alpha@example.org> middle v2";
+$remailer{"bravo"} = "<bravo@example.org> v2";
+$remailer{"charlie"} = "<charlie@example.org> v2";
+$remailer{"delta"} = "<delta@example.org> middle v2";
+$remailer{"echo"} = "<echo@example.org> v2";
+$remailer{"foxtrot"} = "<foxtrot@example.org> v2";
