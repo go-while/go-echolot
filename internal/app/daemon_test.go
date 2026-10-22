@@ -500,3 +500,23 @@ func TestSystemdNotify(t *testing.T) {
 		t.Errorf("last message %q", buf[:n])
 	}
 }
+
+// TestLegacyTokens: after import-echolot, replies on Echolot's MD5 tokens
+// are accepted until the recorded time (§5.5).  The vector is from Perl's
+// Digest::MD5 (internal/token tests).
+func TestLegacyTokens(t *testing.T) {
+	h := newHarness(t, false)
+	os.WriteFile(filepath.Join(h.cfg.Paths.StateDir, "legacy_secret"),
+		[]byte("0123456789abcdef0123456789abcdef\n"+time.Unix(1792560000+86400, 0).UTC().Format(time.RFC3339)+"\n"), 0o600)
+	m, err := NewMinter(h.cfg, h.cfg.Paths.StateDir, h.st.Secret())
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := "pinger+key.12=1792560000=7f220fb7@pinger.example.org"
+	if tok, err := m.Verify(addr, time.Unix(1792560000+3600, 0)); err != nil || !tok.Legacy || tok.ID != 12 {
+		t.Errorf("legacy token: %+v %v", tok, err)
+	}
+	if _, err := m.Verify(addr, time.Unix(1792560000+2*86400, 0)); err == nil {
+		t.Error("legacy token after its time")
+	}
+}

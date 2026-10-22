@@ -18,9 +18,10 @@ import (
 // "adminkey." + 6-digit id + "=" + 10-digit time + "=" + 16 hex digits.
 const maxTokenSuffix = len("adminkey.") + 6 + 1 + 10 + 1 + 16
 
-// maxRandomGarbage keeps a ping in one yamn packet: yamn's packet body is
-// 17920 bytes, and the ping body is base64 (design §6.3).
-const maxRandomGarbage = 10240
+// maxRandomGarbage keeps a ping within the pinger's size limit (8.5 KiB
+// of plaintext, design §6.3; a ping stays one yamn packet): the garbage
+// is at most this many hex digits.
+const maxRandomGarbage = 8192
 
 // signableFiles are the output files signing.files may name.
 var signableFiles = []string{"pubring.mix", "type2.list", "mlist2.txt", "mlist.txt"}
