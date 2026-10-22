@@ -51,6 +51,7 @@ jobs:
           go test -run=NONE -fuzz=FuzzRoundTrip -fuzztime=20s ./internal/token
           go test -run=NONE -fuzz=FuzzParseKey -fuzztime=20s ./internal/replies
           go test -run=NONE -fuzz=FuzzParseConf -fuzztime=20s ./internal/replies
+          go test -run=NONE -fuzz=FuzzScan -fuzztime=20s ./internal/mailin
 
       # Unix only: go-echolot will use flock, Maildir and sendmail.
       - name: cross-build

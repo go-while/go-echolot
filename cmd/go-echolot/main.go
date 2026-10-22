@@ -57,6 +57,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case errors.Is(err, errUsage):
 			return 2
 		}
+		var exit *exitError
+		if errors.As(err, &exit) {
+			fmt.Fprintf(stderr, "go-echolot %s: %v\n", c.name, err)
+			return exit.code
+		}
 		fmt.Fprintf(stderr, "go-echolot %s: %v\n", c.name, err)
 		return 1
 	}
@@ -68,7 +73,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage: go-echolot <command> [flags]\n\ncommands:")
 	for _, c := range commands {
-		fmt.Fprintf(w, "  %-10s %s\n", c.name, c.help)
+		fmt.Fprintf(w, "  %-11s %s\n", c.name, c.help)
 	}
 }
 

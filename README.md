@@ -2,7 +2,7 @@
 
 A pinger for the [yamn](https://github.com/crooks/yamn) remailer network, in Go. It is meant to replace the patched Perl [Echolot](https://github.com/crooks/echolot) that today's yamn pingers run.
 
-**Status: early development.** The design is done; the code so far is the config file parser, the state store, the reply tokens, the reply parsers with the key policy, and the keyring writer (steps 1–5 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot doesn't ping anything yet.
+**Status: phase 1 (keys → pubring) is complete.** go-echolot requests keys and confs from the remailers you add, reads the replies from a Maildir, applies the key policy (pinning, quarantine) and writes `pubring.mix` and `type2.list` (steps 1–6 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). It doesn't ping yet (phase 2), so run it with `keys.require_proof = false` for comparisons only; don't announce its keyring.
 
 A pinger:
 - collects each remailer's key and capabilities by mail (`remailer-key`, `remailer-conf`);
@@ -29,7 +29,10 @@ A pinger:
 
 ## Repository contents
 
-- `cmd/go-echolot/`: the command. So far `dumpconf` (check a config file and print it with the defaults) and `version`.
+- `cmd/go-echolot/`: the command: `run`, `deliver`, `add`/`delete`/`enable`/`disable`/`set`, `approve`/`reject`, `getkeyconf`, `buildkeys`, `status`, `keys`, `dumpconf`, `version` (`go-echolot help`). Commands that change the state go to the running daemon through a spool and SIGHUP.
+- `internal/app/`: the daemon (jobs, reply handling), the operator commands, the spool and the thesaurus of raw replies.
+- `internal/mailin/`, `internal/mailout/`: Maildir intake and `deliver`; sendmail, SMTP (verified TLS, per-command timeouts) and Tor for .onion remailers.
+- `internal/sched/`, `internal/sdnotify/`: the slot scheduler and job loop; systemd notification and watchdog.
 - `internal/config/`: the INI-style config parser, defaults and validation.
 - `internal/store/`: the state dir: `state.json`, the `pings.jsonl` journal, the secret and the lock.
 - `internal/token/`: reply addresses with HMAC tokens, Echolot's MD5 tokens after an import, and the keys derived from the secret.
@@ -39,6 +42,7 @@ A pinger:
 - `internal/blake2s/`: yamn's keyid (unkeyed BLAKE2s-128).
 - `internal/fileutil/`: atomic file writes. `internal/civil/`: calendar dates for key validity.
 - `examples/config.ini`: an example config that documents every key.
+- `examples/go-echolot.service`: a systemd unit (`Type=notify`, watchdog).
 - `tools/golden/`: a harness that runs Echolot's unmodified `Stats.pm` on synthetic ping data, so go-echolot's stats can be tested against Echolot's numbers. See its [README](tools/golden/README.md).
 - `testdata/golden/case1/`: the harness's first input and output.
 - `testdata/replies/`: a real yamn `remailer-key` and `remailer-conf` reply from victor's remailer (`yamn@virebent.art`), as stored by mixmin's pinger, for the reply parsers.

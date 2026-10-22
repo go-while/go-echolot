@@ -172,6 +172,8 @@ func (m Mail) validate() []error {
 		check(isCommand(m.Sendmail), "mail.sendmail must be an absolute path or a command name, not %q", m.Sendmail)
 	case MethodSMTP:
 		check(isHost(m.SMTPRelay), "mail.smtp_relay must be a host name or IP address, not %q", m.SMTPRelay)
+		check(!strings.HasSuffix(strings.ToLower(m.SMTPRelay), ".onion"),
+			"mail.smtp_relay can't be a .onion host; mail for .onion remailers goes through mail.tor_socks")
 		check(m.SMTPPort >= 1 && m.SMTPPort <= 65535, "mail.smtp_port must be 1 to 65535, not %d", m.SMTPPort)
 		check(m.UseTLS || !m.RequireTLS, "mail.require_tls needs mail.usetls = true")
 		// The same policy as yamn: plaintext SMTP only on this machine.
