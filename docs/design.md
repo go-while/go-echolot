@@ -42,7 +42,7 @@ Contents:
 | Signatures | minisign-compatible Ed25519 detached signatures (`*.minisig`) with a signed trusted comment carrying the file name, time and expiry. |
 | Client cross-check | New yamn `urls.pingers` list, `key_quorum` N-of-M, and per-remailer median stats. Specified in §9.6 so it can be done as an independent yamn PR. |
 | Liveness | `status.json`/`status.txt` in the results dir, a `go-echolot check` exit code, a systemd watchdog, and peer staleness checks between pingers. |
-| Dependencies | Standard library and `golang.org/x/...` only (decision 2026-10-22): `x/crypto` (`nacl/secretbox`, `blake2b` for minisign), `x/sys/unix` (`flock`). HKDF, Ed25519, HMAC, JSON, SMTP and Maildir handling come from the standard library or are our own code. No YAML library, so the config is a small INI format (§10.3). |
+| Dependencies | Standard library and `golang.org/x/...` only (decision 2026-10-22): `x/crypto` (`nacl/secretbox`, `blake2b` for minisign), `x/sys/unix` (`flock`). HKDF, Ed25519, HMAC, JSON, SMTP and Maildir handling come from the standard library or are our own code. No YAML library, so the config is a small INI format (§10.3). One reviewed exception (2026-10-22): `github.com/dchest/blake2s` v1.0.0 for yamn's keyid, unkeyed BLAKE2s-128, which `x/crypto/blake2s` can't compute (its 128-bit variant needs a key); yamn uses the same package. |
 | Perl Echolot | No further changes (decision 2026-10-22). The go-while/echolot `yamn` branch stays as it is; all new pinger work goes into go-echolot. |
 
 ---
@@ -1345,7 +1345,7 @@ Zax (Steve Crook) posted it to alt.privacy.anon-server on 2019-06-02, Message-ID
 
 - **No more Perl.** The patched Perl Echolot stays as it is (go-while/echolot, branch `yamn`). No new features go there, including Y-03 work. The open crooks/echolot PR #1 is left as it is.
 - **Proof of possession** is part of the design (§1, §8.4, §9.2, questions 17–18).
-- **Dependencies:** standard library and `golang.org/x/...` only. The config is INI-style instead of YAML (§10.3, question 19); `civil.Date` is our own type (§4).
+- **Dependencies:** standard library and `golang.org/x/...` only, plus `github.com/dchest/blake2s` for keyids (reviewed exception, §1). The config is INI-style instead of YAML (§10.3, question 19); `civil.Date` is our own type (§4).
 - **yamn side:** see §9.6 status and §9.7. Merged since the first draft:
   - #30, #52 (multi-pinger cross-check, stats quorum);
   - #64 (per-domain MX delivery: pings to exits with several recipients are no longer affected);

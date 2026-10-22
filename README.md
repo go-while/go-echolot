@@ -18,7 +18,7 @@ A pinger:
 
 - **yamn only:** no Type I (cypherpunk/PGP) remailers and no Mixmaster.
 - **Output files** are byte-compatible with Echolot's, so existing yamn clients work unchanged.
-- **Dependencies:** the Go standard library and `golang.org/x/...` only. Ping packets are built by running the `yamn` binary, which is not imported.
+- **Dependencies:** the Go standard library and `golang.org/x/...`, plus one reviewed exception: `github.com/dchest/blake2s`, the package yamn uses for keyids (unkeyed BLAKE2s-128, which `x/crypto` can't compute). Ping packets are built by running the `yamn` binary, which is not imported.
 - **Storage:** plain files (`state.json`, a `pings.jsonl` journal) under one locked state directory.
 - **Keys reach clients faster:** keys are requested every 2 h, and the keyring is rebuilt within minutes of a key change instead of up to ~32 h later.
 - **Trust (yamn issue Y-03):**
@@ -37,7 +37,8 @@ A pinger:
 - `examples/config.ini`: an example config that documents every key.
 - `tools/golden/`: a harness that runs Echolot's unmodified `Stats.pm` on synthetic ping data, so go-echolot's stats can be tested against Echolot's numbers. See its [README](tools/golden/README.md).
 - `testdata/golden/case1/`: the harness's first input and output.
-- `testdata/replies/`: a real yamn `remailer-key` and `remailer-conf` reply (mixmin's yamn remailer), for the reply parsers.
+- `testdata/replies/`: a real yamn `remailer-key` and `remailer-conf` reply from victor's remailer (`yamn@virebent.art`), as stored by mixmin's pinger, for the reply parsers.
+- `testdata/pubrings/`: the live `pubring.mix` of the mixmin, victor and frell pingers, fetched 2026-10-22 (6, 6 and 7 keys; every keyid checked against BLAKE2s-128). Frell's still lists middleman's key, which expired on 2026-10-19.
 - `testdata/echolot-import/`: a synthetic Echolot metadata file, for the import of an Echolot data directory.
 
 ## Building
