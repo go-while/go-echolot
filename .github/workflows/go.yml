@@ -44,8 +44,11 @@ jobs:
       - name: go test
         run: go test -race -shuffle=on ./...
 
-      - name: fuzz the config parser
-        run: go test -run=NONE -fuzz=FuzzParse -fuzztime=30s ./internal/config
+      - name: fuzz
+        run: |
+          go test -run=NONE -fuzz=FuzzParse -fuzztime=20s ./internal/config
+          go test -run=NONE -fuzz=FuzzVerify -fuzztime=20s ./internal/token
+          go test -run=NONE -fuzz=FuzzRoundTrip -fuzztime=20s ./internal/token
 
       # Unix only: go-echolot will use flock, Maildir and sendmail.
       - name: cross-build

@@ -460,7 +460,7 @@ e.g. pinger+key.12=1792560000=3f9a0c51d2e47b08@pinger.example.org
 - Keys: `K_x = HKDF-SHA256(secret, salt="go-echolot", info="v1 "+x)` for x ∈ {`token`, `ping-mac`, `ping-box`, `sched`}.
 - Verification (case-insensitive local part; constant-time compare):
   - reject timestamps more than 1 h in the future;
-  - reject request tokens older than 7 d and ping tokens older than 12 d.
+  - reject request and bounce tokens older than 7 d, and ping and chain-ping tokens older than 12 d.
 
   Echolot doesn't check age at all (§2.2).
 - The parser also accepts the `local@domain(token)` form used when the delimiter is empty (`E:Tools.pm:108-113, 124-131`).
