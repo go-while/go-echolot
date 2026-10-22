@@ -1,0 +1,15 @@
+
+Groups of remailers sharing a machine or operator:
+alpha mike
+zulu edges
+
+Broken type-I remailer chains:
+(alpha zulu)
+
+Broken type-II remailer chains:
+(mike *)
+(* zulu)
+
+Last update: Wed 21 Oct 2026 08:45:45 GMT
+remailer  email address                        history  latency  uptime
+-----------------------------------------------------------------------

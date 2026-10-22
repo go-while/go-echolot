@@ -1,0 +1,39 @@
+
+Groups of remailers sharing a machine or operator:
+alpha mike
+zulu edges
+
+Broken type-I remailer chains:
+(alpha zulu)
+
+Broken type-II remailer chains:
+(mike *)
+(* zulu)
+Last update: Wed 21 Oct 2026 08:45:45 GMT
+mixmaster           history  latency  uptime
+--------------------------------------------
+alpha                  *       50:00 100.00%
+edges          _.----+++***  5:29:59 100.00%
+edgesone       .._..--++**# 13:59:59 100.00%
+evenodd               ####         8 100.00%
+fifteencharnic          #       1:03 100.00%
+mike                   *       10:00 100.00%
+slowmin              _      99:00:59 100.00%
+thirteenchar5           #       1:02 100.00%
+tooslow             _       99:59:59 100.00%
+twelvechars1            #       1:01 100.00%
+zulu                   #        1:00 100.00%
+rel99995                * *    50:00 100.00%
+rel99985                * *    50:00 100.00%
+cutoff         #         ##       30  94.12%
+future                  # #     1:30  66.67%
+opts1                    #      1:40  50.00%
+opts2                    #      1:40  33.33%
+tie16b                  #       1:00  18.75%
+tie32c                  #       1:00  15.62%
+near80                ####      1:00   8.75%
+near400               ####      1:00   8.25%
+tie16a                  #       1:00   6.25%
+tie32a                  #       1:00   3.12%
+nopings                     99:59:59   0.00%
+outonly                     99:59:59   0.00%
