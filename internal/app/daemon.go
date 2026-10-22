@@ -496,6 +496,9 @@ func (d *Daemon) Commands(ctx context.Context, at time.Time) {
 // tell the operator.
 func (d *Daemon) Command(ctx context.Context, c Command, at time.Time) []string {
 	var out []string
+	// Manual sends get a tick's budget too: they run in the job loop.
+	ctx, cancel := context.WithTimeout(ctx, d.tickBudget)
+	defer cancel()
 	switch c.Verb {
 	case "getkeyconf":
 		d.Requests(ctx, at, c.Args, true)

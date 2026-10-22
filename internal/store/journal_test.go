@@ -104,15 +104,31 @@ func TestJournalFormat(t *testing.T) {
 	s.PingAborted(q.ID, "smtp: <refused> & gone")
 	r, _ := s.NewPing("yamn@mixmin.net", "a1b2", false, sent)
 	s.PingDone(r.ID, sent, 0)
+	c, _ := s.AddPing(Ping{Addr: "yamn@mixmin.net", KeyID: "a1b2", Counted: true, Sent: sent})
 	want := `{"ev":"out","id":1,"addr":"yamn@mixmin.net","key":"a1b2","wf":0,"sent":1792560000}
 {"ev":"done","id":1,"lat":1234,"rcv":1792561234}
 {"ev":"out","id":2,"addr":"yamn@mixmin.net","key":"a1b2","wf":1,"sent":1792560000}
 {"ev":"abort","id":2,"err":"smtp: <refused> & gone"}
 {"ev":"out","id":3,"addr":"yamn@mixmin.net","key":"a1b2","wf":0,"sent":1792560000}
 {"ev":"done","id":3,"lat":0,"rcv":1792560000}
+{"ev":"out","id":4,"addr":"yamn@mixmin.net","key":"a1b2","wf":0,"sent":1792560000,"pub":1}
 `
 	if got := journal(t, dir); got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+	s.Close()
+	s = open(t, dir)
+	if p, _ := s.Ping(c.ID); !p.Counted {
+		t.Error("Counted lost on reopen")
+	}
+	if p, _ := s.Ping(r.ID); p.Counted {
+		t.Error("NewPing counted")
+	}
+	s.Compact(sent.Add(-time.Hour))
+	s.Close()
+	s = open(t, dir)
+	if p, _ := s.Ping(c.ID); !p.Counted {
+		t.Error("Counted lost in compaction")
 	}
 }
 

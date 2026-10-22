@@ -318,12 +318,20 @@ func (s *Store) appendEvents(evs ...event) error {
 	return nil
 }
 
-// NewPing records a ping as sent, before it is sent (design §5.3).  It
-// returns the ping with its new ID.
+// NewPing records a ping that doesn't count in the stats; see AddPing.
 func (s *Store) NewPing(addr, keyID string, withFrom bool, sent time.Time) (Ping, error) {
+	return s.AddPing(Ping{Addr: addr, KeyID: keyID, WithFrom: withFrom, Sent: sent})
+}
+
+// AddPing records a ping as sent, before it is sent (design §5.3): its
+// Addr, KeyID, WithFrom, Counted and Sent; the rest is ignored.  It
+// returns the ping with its new ID.
+func (s *Store) AddPing(in Ping) (Ping, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	p := &Ping{ID: s.pings.nextID, Addr: addr, KeyID: keyID, WithFrom: withFrom, Sent: time.Unix(sent.Unix(), 0).UTC()}
+	addr, keyID, sent := in.Addr, in.KeyID, in.Sent
+	p := &Ping{ID: s.pings.nextID, Addr: addr, KeyID: keyID, WithFrom: in.WithFrom, Counted: in.Counted,
+		Sent: time.Unix(sent.Unix(), 0).UTC()}
 	if addr == "" || keyID == "" || p.Sent.Unix() <= 0 {
 		return Ping{}, errors.New("NewPing: empty address or keyid, or bad time")
 	}

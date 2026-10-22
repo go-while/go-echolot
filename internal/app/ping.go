@@ -32,9 +32,10 @@ import (
 // sendpings.
 func (d *Daemon) Pings(ctx context.Context, at time.Time, only []string, now bool) {
 	type ping struct {
-		id   int
-		addr string
-		key  replies.ParsedKey
+		id      int
+		addr    string
+		key     replies.ParsedKey
+		counted bool
 	}
 	var due []ping
 	s := d.cfg.Schedule
@@ -51,14 +52,14 @@ func (d *Daemon) Pings(ctx context.Context, at time.Time, only []string, now boo
 			}
 			for _, k := range keys.Pingable(r, at, d.cfg.Keys.Retention) {
 				if now || sched.Due(d.schedKey, addr+"|mix|"+k.KeyID, at, s.PingInterval, s.Tick) {
-					due = append(due, ping{r.ID, addr, parsedKey(k)})
+					due = append(due, ping{r.ID, addr, parsedKey(k), d.published(k)})
 				}
 			}
 		}
 	})
 	withFrom := sched.WithFrom(at, s.PingInterval)
 	for i, p := range due {
-		err := d.sendPing(ctx, p.id, p.addr, p.key, withFrom)
+		err := d.sendPing(ctx, p.id, p.addr, p.key, withFrom, p.counted)
 		if ctx.Err() != nil {
 			d.log.Warn("tick over: pings left for their next slot", "remailer", p.addr, "left", len(due)-i)
 			return
@@ -69,12 +70,22 @@ func (d *Daemon) Pings(ctx context.Context, at time.Time, only []string, now boo
 	}
 }
 
-// sendPing records the ping, then builds and sends it.  A failure on our
-// side is an abort, which doesn't count as a lost ping (§5.3); a refusal
-// by the remailer's side leaves it out, a loss like any other.
-func (d *Daemon) sendPing(ctx context.Context, id int, addr string, k replies.ParsedKey, withFrom bool) error {
+// published reports whether pings to k count in the stats: whether k is
+// published now (§13 question 18).  It's decided when the ping is sent
+// and kept in the journal, so a later change of the key (a forged key
+// deleted unproven, say) can't turn its lost pings into losses of the
+// real remailer.
+func (d *Daemon) published(k *store.Key) bool {
+	return k.State == store.KeyStateActive && (keys.Proven(k) || !d.cfg.Keys.RequireProof)
+}
+
+// sendPing records the ping, then builds and sends it.  Any failure here
+// is ours, an abort, which doesn't count as a lost ping (§5.3, §8.4): even
+// a 5xx comes from our own relay or sendmail; the remailer's side refuses
+// with a bounce later.
+func (d *Daemon) sendPing(ctx context.Context, id int, addr string, k replies.ParsedKey, withFrom, counted bool) error {
 	sent := d.tokenTime(token.KindPing, 0)
-	p, err := d.st.NewPing(addr, k.KeyID, withFrom, sent)
+	p, err := d.st.AddPing(store.Ping{Addr: addr, KeyID: k.KeyID, WithFrom: withFrom, Counted: counted, Sent: sent})
 	if err != nil {
 		return err // not recorded, not sent
 	}
@@ -110,8 +121,6 @@ func (d *Daemon) sendPing(ctx context.Context, id int, addr string, k replies.Pa
 	case errors.Is(err, mailout.ErrOnionWithoutTor):
 		abort(err)
 		return fmt.Errorf("skipping .onion remailer: mail.tor_socks is not set")
-	case mailout.IsPermanent(err):
-		return err // refused by the remailer's side: a lost ping
 	case err != nil:
 		return abort(err)
 	}
@@ -153,11 +162,13 @@ func (d *Daemon) receivePing(tok token.Token, m *mailin.Message) error {
 		received = d.clock.Now()
 	}
 	latency := max(int64(received.Sub(p.Sent)/time.Second), 0)
-	if _, news, err := d.st.PingDone(p.ID, received, latency); err != nil {
+	_, news, err := d.st.PingDone(p.ID, received, latency)
+	if err != nil {
 		return err // transient: try again
-	} else if !news {
-		return nil // a copy, or already counted
 	}
+	// The proof is applied whether or not the done is new: after a crash
+	// between the two writes, the mail comes again and must still prove
+	// the key.  SetProven keeps the first time.
 	var proven bool
 	err = d.st.Update(func(st *store.State) error {
 		if r := st.Remailers[p.Addr]; r != nil {
@@ -170,7 +181,9 @@ func (d *Daemon) receivePing(tok token.Token, m *mailin.Message) error {
 	if err != nil {
 		return err
 	}
-	d.log.Debug("ping back", "remailer", p.Addr, "keyid", p.KeyID, "latency", latency)
+	if news {
+		d.log.Debug("ping back", "remailer", p.Addr, "keyid", p.KeyID, "latency", latency)
+	}
 	if proven {
 		d.log.Info("key proven: a ping to it came back", "remailer", p.Addr, "keyid", p.KeyID)
 		d.loop.Trigger(jobPubring)
@@ -236,21 +249,13 @@ func (d *Daemon) BuildStats(at time.Time) {
 }
 
 // countedPing returns which pings of a remailer with keys ks count in its
-// stats (§13 questions 3 and 18): pings to a key that wasn't published
-// when they were sent don't; with keys.require_proof that's before the
-// key was proven, or while it is quarantined or rejected.  Pings of keys
-// that are gone count (the 12-day history outlives keys) unless
+// stats (§13 questions 3 and 18): those whose key was published when they
+// were sent (Ping.Counted, decided then).  Pings of keys that are gone
+// still count (the 12-day history outlives keys) unless
 // compat.drop_pings_with_key restores Echolot's behaviour.
 func (d *Daemon) countedPing(ks map[string]*store.Key) func(store.Ping) bool {
 	return func(p store.Ping) bool {
-		k := ks[p.KeyID]
-		if k == nil {
-			return !d.cfg.Compat.DropPingsWithKey
-		}
-		if k.State != store.KeyStateActive {
-			return false
-		}
-		return !d.cfg.Keys.RequireProof || keys.Proven(k) && !p.Sent.Before(k.ProvenAt)
+		return p.Counted && (ks[p.KeyID] != nil || !d.cfg.Compat.DropPingsWithKey)
 	}
 }
 
