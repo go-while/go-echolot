@@ -2,7 +2,7 @@
 
 A pinger for the [yamn](https://github.com/crooks/yamn) remailer network, in Go. It is meant to replace the patched Perl [Echolot](https://github.com/crooks/echolot) that today's yamn pingers run.
 
-**Status: early development.** The design is done; the code so far is the config file parser, the state store and the reply tokens (steps 1–3 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot doesn't ping anything yet.
+**Status: early development.** The design is done; the code so far is the config file parser, the state store, the reply tokens, and the reply parsers with the key policy (steps 1–4 of the plan in [docs/design.md §12.3](docs/design.md#123-first-pr-sized-steps)). go-echolot doesn't ping anything yet.
 
 A pinger:
 - collects each remailer's key and capabilities by mail (`remailer-key`, `remailer-conf`);
@@ -33,6 +33,9 @@ A pinger:
 - `internal/config/`: the INI-style config parser, defaults and validation.
 - `internal/store/`: the state dir: `state.json`, the `pings.jsonl` journal, the secret and the lock.
 - `internal/token/`: reply addresses with HMAC tokens, Echolot's MD5 tokens after an import, and the keys derived from the secret.
+- `internal/replies/`: parsers for `remailer-key` and `remailer-conf` replies and `pubring.mix`, accepting exactly what yamn clients accept.
+- `internal/keys/`: the key policy: validity, which key is published and pinged, nick pinning, quarantine of unexpected changes, proof of possession, expiry.
+- `internal/blake2s/`: yamn's keyid (unkeyed BLAKE2s-128).
 - `internal/fileutil/`: atomic file writes. `internal/civil/`: calendar dates for key validity.
 - `examples/config.ini`: an example config that documents every key.
 - `tools/golden/`: a harness that runs Echolot's unmodified `Stats.pm` on synthetic ping data, so go-echolot's stats can be tested against Echolot's numbers. See its [README](tools/golden/README.md).
