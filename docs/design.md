@@ -371,6 +371,7 @@ state_dir/
   pings.jsonl      {"ev":"out","id":7,"addr":"…","key":"…","wf":0,"sent":1792560000}
                    {"ev":"done","id":7,"lat":1234,"rcv":1792561234}
                    {"ev":"abort","id":7,"err":"smtp: …"}
+                   {"ev":"next","id":8}   first line after compaction: IDs aren't reused
   chainpings.jsonl (phase 3)
   commands/        CLI spool (§10.4)
   thesaurus/       <id>.conf|key|help|adminkey (+ .meta.json with received time)
@@ -381,9 +382,11 @@ state_dir/
 ### 5.3 Crash safety
 
 - `state.json` is always replaced atomically. The order is temp file, `fsync`, `rename`, then `fsync` of the directory, the same helper as yamn's `writeFileAtomic` (`Y:utils.go:169-190`) plus the fsyncs.
-- Journal lines are appended with `O_APPEND`; one `fsync` per batch (per tick or per mail scan).
-  - On load, an incomplete last line (no `\n`) is truncated away.
+- Journal lines are appended with `O_APPEND` and one `fsync` per event. At ~100 pings an hour that costs nothing, and a mail can be deleted as soon as its `done` returns.
+  - On load, an incomplete last line (no `\n`) is truncated away. Other bad lines are logged and skipped.
+  - A write that fails part way is truncated back. If that fails too, the journal takes no more writes until restart.
   - Unknown IDs in `done` are ignored.
+- If the directory `fsync` fails *after* a rename, the new file is already in place: the store keeps it (in memory too) and logs an error, instead of rolling back to data that's no longer on disk.
 - Compaction (daily, with expiry) writes a new journal of live records via tmp + rename.
 - Mail: process → persist → *then* unlink the Maildir file. A crash reprocesses mail, and every handler is idempotent:
   - a duplicate `done` is ignored, as in `E:Storage/File.pm:582-587`;
