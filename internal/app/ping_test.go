@@ -170,11 +170,15 @@ func TestFromlines(t *testing.T) {
 func TestBrokenChains(t *testing.T) {
 	h := newHarness(t, false)
 	h.d.encoder = plainEncoder{}
+	// victor is added with its domain in upper case: its key says
+	// yamn@virebent.art (same address, §6.4), the chain pings and their
+	// evaluation must still match (review of phase 3).
+	stored := map[string]string{"victor": "yamn@VIREBENT.art", "yamn4": "yamn4@mixmin.net"}
 	for _, nick := range []string{"victor", "yamn4"} {
 		k := replies.ParseKey([]byte(liveKey(t, nick))).Keys[0]
-		h.command("add", k.Address, nick)
+		h.command("add", stored[nick], nick)
 		h.st.Update(func(st *store.State) error {
-			r := st.Remailers[k.Address]
+			r := st.Remailers[stored[nick]]
 			r.Conf = &store.Conf{Nick: nick, Caps: fmt.Sprintf(`$remailer{"%s"} = "<%s> v2";`, nick, k.Address)}
 			r.Keys = map[string]*store.Key{k.KeyID: {KeyID: k.KeyID, Nick: nick, Address: k.Address, Version: k.Version,
 				Caps: k.Caps, Created: k.Created, Expires: k.Expires, PK: store.PublicKey(k.PK), LastSeen: h.clock.Now(),
@@ -184,7 +188,7 @@ func TestBrokenChains(t *testing.T) {
 	}
 	h.clock.Advance(12 * time.Hour) // keys of 2026-10-17..31 valid; e2eStart is 10-22 00:00
 	for range 3 {
-		h.command("sendchainpings", "yamn@virebent.art:yamn4@mixmin.net")
+		h.command("sendchainpings", "yamn@VIREBENT.art:yamn4@mixmin.net")
 		h.clock.Advance(24 * time.Hour)
 	}
 	if got := len(h.st.ChainPings(time.Time{})); got != 3 {
@@ -201,5 +205,13 @@ func TestBrokenChains(t *testing.T) {
 	html, _ := os.ReadFile(filepath.Join(h.cfg.Paths.ResultsDir, "mlist2.html"))
 	if !strings.Contains(string(html), "victor") {
 		t.Errorf("mlist2.html lacks the chain")
+	}
+
+	// The mail fuse stops the loop: one try, not every pair.
+	h.mailer.fail = fmt.Errorf("fuse: %w", mailout.ErrRateLimited)
+	before := len(h.st.ChainPings(time.Time{}))
+	h.command("sendchainpings", "all")
+	if !strings.Contains(h.log.String(), "mail.max_per_hour reached: chain pings left") || len(h.st.ChainPings(time.Time{})) != before {
+		t.Errorf("rate limit: %d chain pings\n%s", len(h.st.ChainPings(time.Time{})), h.log)
 	}
 }

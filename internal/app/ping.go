@@ -59,9 +59,13 @@ func (d *Daemon) Pings(ctx context.Context, at time.Time, only []string, now boo
 	})
 	withFrom := sched.WithFrom(at, s.PingInterval)
 	for i, p := range due {
-		err := d.sendPing(ctx, p.id, p.addr, p.key, withFrom, p.counted)
 		if ctx.Err() != nil {
-			d.log.Warn("tick over: pings left for their next slot", "remailer", p.addr, "left", len(due)-i)
+			d.log.Warn("tick over: pings left for their next slot", "left", len(due)-i)
+			return
+		}
+		err := d.sendPing(ctx, p.id, p.addr, p.key, withFrom, p.counted)
+		if errors.Is(err, mailout.ErrRateLimited) {
+			d.log.Warn("mail.max_per_hour reached: pings left", "left", len(due)-i)
 			return
 		}
 		if err != nil {

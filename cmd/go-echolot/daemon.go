@@ -48,7 +48,7 @@ func init() {
 		command{"getkeyconf", "send key and conf requests now: getkeyconf [address...]", stateCmd("getkeyconf")},
 		command{"buildkeys", "write the keyrings now", stateCmd("buildkeys")},
 		command{"sendpings", "send pings now: sendpings [address...]", stateCmd("sendpings")},
-		command{"sendchainpings", "send chain pings now: sendchainpings [<a>:<b>...]", stateCmd("sendchainpings")},
+		command{"sendchainpings", "send chain pings now: sendchainpings <a>:<b>... | all", stateCmd("sendchainpings")},
 		command{"import-echolot", "import an Echolot data dir into a new state dir (see --help)", cmdImport},
 		command{"buildstats", "write mlist2.txt and mlist.txt now", stateCmd("buildstats")},
 	)

@@ -193,8 +193,12 @@ func (d *Daemon) Tick(ctx context.Context, at time.Time) {
 	ctx, cancel := context.WithTimeout(ctx, d.tickBudget)
 	defer cancel()
 	d.Requests(ctx, at, nil, false)
-	d.Pings(ctx, at, nil, false)
-	d.ChainPings(ctx, at, nil, false)
+	if ctx.Err() == nil {
+		d.Pings(ctx, at, nil, false)
+	}
+	if ctx.Err() == nil {
+		d.ChainPings(ctx, at, nil, false)
+	}
 }
 
 // Requests sends the requests due at the tick at (design §6.2, §8.3).
@@ -247,6 +251,9 @@ func (d *Daemon) Requests(ctx context.Context, at time.Time, only []string, now 
 		case errors.Is(err, mailout.ErrOnionWithoutTor):
 			d.log.Info("skipping .onion remailer: mail.tor_socks is not set", "remailer", q.addr)
 			continue
+		case errors.Is(err, mailout.ErrRateLimited):
+			d.log.Warn("mail.max_per_hour reached: requests left for their next slot", "left", len(due)-i)
+			return
 		case mailout.IsPermanent(err):
 			// The remailer's side refused it: like a bounce, it counts
 			// as a request without a reply (Y-41: no retrying for days).

@@ -369,9 +369,12 @@ func importPings(st *store.Store, dir, addr, keyid, stats string, now time.Time,
 
 // importChainPings imports Echolot's chain pings (§5.5, §8.2) from
 // chainpings.mix.out ("sent a1 mix k1 a2 mix k2") and .done (… latency)
-// (E:Storage/File.pm:632-878), with the rules of importPings: every done
-// one, out ones older than a day.  Only chains whose two keys were
-// imported come in.
+// (E:Storage/File.pm:632-878), as Echolot's get_chainpings reads them
+// (E:Storage/File.pm:760-820): .out keeps every chain ping sent; one is
+// done if .done has it too, once; a .done line without its .out line
+// doesn't count.  Then the rules of importPings: every done one, out ones
+// older than a day.  Chains are judged per address, so only both
+// remailers must have been imported, not their keys.
 func importChainPings(st *store.Store, dir string, now time.Time, rep *Report) error {
 	type cp struct {
 		p    store.ChainPing
@@ -379,11 +382,15 @@ func importChainPings(st *store.Store, dir string, now time.Time, rep *Report) e
 		done bool
 	}
 	var all []cp
-	haveKey := func(addr, keyid string) (ok bool) {
-		st.View(func(s *store.State) { ok = s.Remailers[addr] != nil && s.Remailers[addr].Keys[keyid] != nil })
+	haveRemailer := func(addr string) (ok bool) {
+		st.View(func(s *store.State) { ok = s.Remailers[addr] != nil })
 		return ok
 	}
-	seen := map[string]bool{} // done ones: their out lines may still be there
+	type line struct {
+		f   []string
+		lat int64
+	}
+	lines := map[string][]line{}
 	for _, ext := range []string{"done", "out"} {
 		f, err := os.Open(filepath.Join(dir, "chainpings.mix."+ext))
 		if os.IsNotExist(err) {
@@ -412,20 +419,38 @@ func importChainPings(st *store.Store, dir string, now time.Time, rep *Report) e
 				rep.problem("chainpings.mix.%s:%d: bad line %q", ext, n, bounded(sc.Text()))
 				continue
 			}
-			key := strings.Join(fs[:7], " ")
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			if !haveKey(fs[1], fs[3]) || !haveKey(fs[4], fs[6]) {
-				rep.ChainDropped++
-				continue
-			}
-			all = append(all, cp{store.ChainPing{A: fs[1], KeyA: fs[3], B: fs[4], KeyB: fs[6], Sent: time.Unix(sent, 0).UTC()}, lat, ext == "done"})
+			lines[ext] = append(lines[ext], line{fs, lat})
 		}
 		f.Close()
 		if err := sc.Err(); err != nil {
 			rep.problem("chainpings.mix.%s: %v", ext, err)
+		}
+	}
+	done := map[string]int64{} // key -> latency, the first .done line of each
+	for _, l := range lines["done"] {
+		k := strings.Join(l.f[:7], " ")
+		if _, ok := done[k]; !ok {
+			done[k] = l.lat
+		}
+	}
+	sent := map[string]bool{}
+	for _, l := range lines["out"] {
+		k := strings.Join(l.f[:7], " ")
+		if sent[k] {
+			continue
+		}
+		sent[k] = true
+		if !haveRemailer(l.f[1]) || !haveRemailer(l.f[4]) {
+			rep.ChainDropped++
+			continue
+		}
+		s, _ := strconv.ParseInt(l.f[0], 10, 64)
+		lat, isDone := done[k]
+		all = append(all, cp{store.ChainPing{A: l.f[1], KeyA: l.f[3], B: l.f[4], KeyB: l.f[6], Sent: time.Unix(s, 0).UTC()}, lat, isDone})
+	}
+	for k := range done {
+		if !sent[k] {
+			rep.ChainDropped++ // done but never sent: Echolot ignores it
 		}
 	}
 	slices.SortStableFunc(all, func(a, b cp) int { return a.p.Sent.Compare(b.p.Sent) })

@@ -77,9 +77,11 @@ func echolotDir(t *testing.T) (Options, map[string]replies.ParsedKey) {
 	os.WriteFile(base+".done", []byte(fmt.Sprintf("%d 600\n%d 1200\n%d 300\nnot a line\n", n-3*86400, n-2*86400, n-86400)), 0o600)
 	os.WriteFile(base+".out", []byte(fmt.Sprintf("%d\n%d\n", n-2*86400, n-3600)), 0o600)
 
-	// Chain pings: yamn → victor done, out old (a loss), out young
-	// (dropped); victor → frell done, its out line still there (counted
-	// once); one with a key that wasn't imported (dropped); a bad line.
+	// Chain pings, as Echolot keeps them (.out has every one sent):
+	// yamn → victor in .done only (never sent: dropped, as Echolot);
+	// victor → frell in .out and .done (done); yamn → victor out, old (a
+	// loss) and young (dropped); one with a key that wasn't imported
+	// (chains go by address: a loss); a bad line.
 	v, f := ks["victor"], ks["frell"]
 	chain := func(sent int64, a, b replies.ParsedKey) string {
 		return fmt.Sprintf("%d %s mix %s %s mix %s", sent, a.Address, a.KeyID, b.Address, b.KeyID)
@@ -112,10 +114,10 @@ func TestImport(t *testing.T) {
 	if rep.Remailers != 3 || rep.Keys != 3 || rep.Done != 3 || rep.Out != 1 || rep.OutDropped != 1 || rep.Suggestions != 1 || rep.Thesaurus != 1 {
 		t.Errorf("report: %+v", rep)
 	}
-	if rep.ChainDone != 2 || rep.ChainOut != 1 || rep.ChainDropped != 2 {
+	if rep.ChainDone != 1 || rep.ChainOut != 2 || rep.ChainDropped != 2 {
 		t.Errorf("chain pings: %+v", rep)
 	}
-	if cps := st.ChainPings(time.Time{}); len(cps) != 3 || cps[0].Status != store.PingDone || cps[0].Latency != 900 {
+	if cps := st.ChainPings(time.Time{}); len(cps) != 3 || cps[0].Status != store.PingDone || cps[0].Latency != 1800 || cps[0].B != "nyam@remailer.frell.eu.org" {
 		t.Errorf("chain pings: %+v", cps)
 	}
 	for _, want := range []string{"bad address: not an address", "not a line", `"garbage" not imported`} {

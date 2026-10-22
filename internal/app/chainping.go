@@ -52,15 +52,15 @@ func (d *Daemon) chainHops(t time.Time) ([]chain.Hop, map[string]replies.ParsedK
 }
 
 // ChainPings sends the chain pings due at the tick at.  With now set, it
-// sends those of pairs ("a:b" each, by address) now, or of every pair if
-// pairs is empty: sendchainpings.
+// sends those of pairs ("a:b" each, by address) now, or of every pair for
+// "all": sendchainpings.  It stops at the mail.max_per_hour fuse.
 func (d *Daemon) ChainPings(ctx context.Context, at time.Time, pairs []string, now bool) {
 	hops, pks, ids := d.chainHops(at)
 	var due []chain.Pair
 	switch {
 	case !now:
 		due = chain.Due(d.schedKey, chain.Pairs(hops), d.chainRes.Care, at, d.cfg.Schedule.Tick)
-	case len(pairs) == 0:
+	case len(pairs) == 1 && pairs[0] == "all":
 		due = chain.Pairs(hops)
 	default:
 		for _, p := range pairs {
@@ -75,9 +75,13 @@ func (d *Daemon) ChainPings(ctx context.Context, at time.Time, pairs []string, n
 		}
 	}
 	for i, p := range due {
-		err := d.sendChainPing(ctx, ids[p.A.Addr], pks[p.A.Addr], pks[p.B.Addr])
 		if ctx.Err() != nil {
-			d.log.Warn("tick over: chain pings left for their next slot", "chain", p.String(), "left", len(due)-i)
+			d.log.Warn("tick over: chain pings left for their next slot", "left", len(due)-i)
+			return
+		}
+		err := d.sendChainPing(ctx, ids[p.A.Addr], p.A.Addr, pks[p.A.Addr], p.B.Addr, pks[p.B.Addr])
+		if errors.Is(err, mailout.ErrRateLimited) {
+			d.log.Warn("mail.max_per_hour reached: chain pings left", "left", len(due)-i)
 			return
 		}
 		if err != nil {
@@ -87,9 +91,12 @@ func (d *Daemon) ChainPings(ctx context.Context, at time.Time, pairs []string, n
 }
 
 // sendChainPing records a chain ping through a then b, builds and sends
-// it.  Any failure is ours: an abort, which doesn't count (§5.3).
-func (d *Daemon) sendChainPing(ctx context.Context, idA int, a, b replies.ParsedKey) error {
-	p, err := d.st.AddChainPing(store.ChainPing{A: a.Address, KeyA: a.KeyID, B: b.Address, KeyB: b.KeyID,
+// it.  Any failure is ours: an abort, which doesn't count (§5.3).  The
+// journal and the body use the remailers' addresses as stored (addrA,
+// addrB), which the evaluation looks up; a key's own address may differ
+// in the case of its domain.
+func (d *Daemon) sendChainPing(ctx context.Context, idA int, addrA string, a replies.ParsedKey, addrB string, b replies.ParsedKey) error {
+	p, err := d.st.AddChainPing(store.ChainPing{A: addrA, KeyA: a.KeyID, B: addrB, KeyB: b.KeyID,
 		Sent: d.tokenTime(token.KindChainping, 0)})
 	if err != nil {
 		return err
@@ -101,7 +108,7 @@ func (d *Daemon) sendChainPing(ctx context.Context, idA int, a, b replies.Parsed
 		return err
 	}
 	sealed, err := pinger.Seal(&d.macKey, &d.boxKey, pinger.Body{
-		Remailer: a.Address, Type: pinger.TypeMix, KeyID: a.KeyID, Remailer2: b.Address, KeyID2: b.KeyID,
+		Remailer: addrA, Type: pinger.TypeMix, KeyID: a.KeyID, Remailer2: addrB, KeyID2: b.KeyID,
 		Sent: p.Sent, ID: p.ID,
 	}, d.cfg.Stats.RandomGarbage, rand.Reader)
 	if err != nil {
