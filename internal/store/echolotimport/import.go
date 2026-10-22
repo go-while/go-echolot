@@ -57,6 +57,7 @@ type Options struct {
 // Report says what was imported and what wasn't.
 type Report struct {
 	Remailers, Keys, Done, Out, OutDropped, Suggestions, Thesaurus int
+	ChainDone, ChainOut, ChainDropped                              int
 	Problems                                                       []string
 }
 
@@ -271,6 +272,9 @@ func Import(st *store.Store, opt Options) (*Report, error) {
 			return rep, err
 		}
 	}
+	if err := importChainPings(st, opt.DataDir, now, rep); err != nil {
+		return rep, err
+	}
 	if err := writeLegacy(st.Dir(), md.Secret, now.Add(LegacyWindow)); err != nil {
 		rep.problem("Echolot's secret not imported: %v; replies to Echolot's last requests will be refused", err)
 	}
@@ -361,6 +365,114 @@ func importPings(st *store.Store, dir, addr, keyid, stats string, now time.Time,
 		}
 		return nil
 	})
+}
+
+// importChainPings imports Echolot's chain pings (§5.5, §8.2) from
+// chainpings.mix.out ("sent a1 mix k1 a2 mix k2") and .done (… latency)
+// (E:Storage/File.pm:632-878), as Echolot's get_chainpings reads them
+// (E:Storage/File.pm:760-820): .out keeps every chain ping sent; one is
+// done if .done has it too, once; a .done line without its .out line
+// doesn't count.  Then the rules of importPings: every done one, out ones
+// older than a day.  Chains are judged per address, so only both
+// remailers must have been imported, not their keys.
+func importChainPings(st *store.Store, dir string, now time.Time, rep *Report) error {
+	type cp struct {
+		p    store.ChainPing
+		lat  int64
+		done bool
+	}
+	var all []cp
+	haveRemailer := func(addr string) (ok bool) {
+		st.View(func(s *store.State) { ok = s.Remailers[addr] != nil })
+		return ok
+	}
+	type line struct {
+		f   []string
+		lat int64
+	}
+	lines := map[string][]line{}
+	for _, ext := range []string{"done", "out"} {
+		f, err := os.Open(filepath.Join(dir, "chainpings.mix."+ext))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			rep.problem("chain pings: %v", err)
+			continue
+		}
+		sc := bufio.NewScanner(f)
+		for n := 1; sc.Scan(); n++ {
+			fs := strings.Fields(sc.Text())
+			want := 7
+			if ext == "done" {
+				want = 8
+			}
+			var sent, lat int64
+			var err error
+			if len(fs) == want {
+				sent, err = strconv.ParseInt(fs[0], 10, 64)
+				if err == nil && ext == "done" {
+					lat, err = strconv.ParseInt(fs[7], 10, 64)
+				}
+			}
+			if len(fs) != want || err != nil || sent <= 0 || lat < 0 || fs[2] != "mix" || fs[5] != "mix" {
+				rep.problem("chainpings.mix.%s:%d: bad line %q", ext, n, bounded(sc.Text()))
+				continue
+			}
+			lines[ext] = append(lines[ext], line{fs, lat})
+		}
+		f.Close()
+		if err := sc.Err(); err != nil {
+			rep.problem("chainpings.mix.%s: %v", ext, err)
+		}
+	}
+	done := map[string]int64{} // key -> latency, the first .done line of each
+	for _, l := range lines["done"] {
+		k := strings.Join(l.f[:7], " ")
+		if _, ok := done[k]; !ok {
+			done[k] = l.lat
+		}
+	}
+	sent := map[string]bool{}
+	for _, l := range lines["out"] {
+		k := strings.Join(l.f[:7], " ")
+		if sent[k] {
+			continue
+		}
+		sent[k] = true
+		if !haveRemailer(l.f[1]) || !haveRemailer(l.f[4]) {
+			rep.ChainDropped++
+			continue
+		}
+		s, _ := strconv.ParseInt(l.f[0], 10, 64)
+		lat, isDone := done[k]
+		all = append(all, cp{store.ChainPing{A: l.f[1], KeyA: l.f[3], B: l.f[4], KeyB: l.f[6], Sent: time.Unix(s, 0).UTC()}, lat, isDone})
+	}
+	for k := range done {
+		if !sent[k] {
+			rep.ChainDropped++ // done but never sent: Echolot ignores it
+		}
+	}
+	slices.SortStableFunc(all, func(a, b cp) int { return a.p.Sent.Compare(b.p.Sent) })
+	for _, c := range all {
+		if !c.done && now.Sub(c.p.Sent) < outMinAge {
+			rep.ChainDropped++
+			continue
+		}
+		p, err := st.AddChainPing(c.p)
+		if err != nil {
+			return err
+		}
+		if !c.done {
+			rep.ChainOut++
+			continue
+		}
+		if _, _, err := st.ChainPingDone(p.ID, p.Sent.Add(time.Duration(c.lat)*time.Second), c.lat); err != nil {
+			return err
+		}
+		rep.ChainDone++
+	}
+	return nil
 }
 
 // status maps Echolot's states to ours (§8.5).

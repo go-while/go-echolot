@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="generator" content="go-echolot v0.3.0">
+<title>Remailer Reliability Stats [Test Pinger]</title>
+<link rel="stylesheet" href="./echolot.css">
+</head>
+<body>
+<header>
+<h1>Remailer Reliability Stats <span class="site">[Test Pinger]</span></h1>
+<nav><a href="./">Up</a> · <a href="mlist2.txt">Plain text version</a></nav>
+</header>
+<main>
+<h2>Mixmaster Remailers (v2)</h2>
+<p>This is an automatically generated list of remailer reliability
+statistics. Please see the <a href="#legend">Legend</a> below for
+interpretative data.</p>
+<div class="scroll">
+<table class="stats">
+<thead><tr><th>Remailer</th><th>Latent-Hist</th><th>Latent</th><th>Uptime-Hist</th><th>Uptime</th><th>Options</th></tr></thead>
+<tbody>
+<tr><td>beta</td><td class="mono">?????????000</td><td class="mono num">:05</td><td class="mono">?????????&#43;&#43;&#43;</td><td class="num">100.0%</td><td class="mono">D M           0</td></tr>
+<tr><td>alpha</td><td class="mono">?????????22?</td><td class="mono num">1:06</td><td class="mono">?????????&#43;95</td><td class="num">95.5%</td><td class="mono">  M           9</td></tr>
+<tr><td>gamma</td><td class="mono">????????????</td><td class="mono num">99:59</td><td class="mono">???????????0</td><td class="num">0.0%</td><td class="mono"> PM            </td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Groups of remailers sharing a machine or operator</h3>
+<pre>alpha beta</pre>
+
+<h3>Broken type-I remailer chains</h3>
+<p class="none">None.</p>
+
+<h3>Broken type-II remailer chains</h3>
+<pre>(alpha gamma)</pre>
+
+<h3>Remailer-Capabilities</h3>
+<pre class="caps">
+$remailer{&#34;alpha&#34;} = &#34;&lt;alpha@example.org&gt; mix klen1000&#34;;
+$remailer{&#34;beta&#34;} = &#34;&lt;beta@example.net&gt; mix middle klen64&#34;;
+$remailer{&#34;gamma&#34;} = &#34;&lt;gamma@example.com&gt; mix post&#34;;
+</pre>
+
+<h2 id="legend">Legend</h2>
+<p>The stats table shows the 12-day performance history of each remailer.
+Pings (test messages) are sent to each remailer and response time is
+measured.</p>
+
+<p><strong>Latent-Hist</strong> shows the median response time for each day,
+oldest on the left:</p>
+<table class="legend">
+<tr><td>0</td><td>less than 20 minutes</td></tr>
+<tr><td>1</td><td>less than 1 hour</td></tr>
+<tr><td>…</td><td></td></tr>
+<tr><td>9</td><td>less than 9 hours</td></tr>
+<tr><td>A</td><td>less than 12 hours</td></tr>
+<tr><td>B</td><td>less than 18 hours</td></tr>
+<tr><td>C</td><td>less than 24 hours</td></tr>
+<tr><td>…</td><td></td></tr>
+<tr><td>G</td><td>less than 48 hours</td></tr>
+<tr><td>H</td><td>more than 48 hours</td></tr>
+<tr><td>?</td><td>No responses received / No data</td></tr>
+</table>
+
+<p><strong>Latent</strong> shows the median response time in HH:MM format.</p>
+
+<p><strong>Uptime-Hist</strong> shows the Uptime percentage (responses received
+divided by pings sent) for each day, oldest on the left:</p>
+<table class="legend">
+<tr><td>+</td><td>100% (Responses were received for all pings sent)</td></tr>
+<tr><td>9</td><td>90-99.9% (About 9 responses were received for every 10 pings)</td></tr>
+<tr><td>…</td><td></td></tr>
+<tr><td>1</td><td>10-19.9%</td></tr>
+<tr><td>0</td><td>0-9.9%</td></tr>
+<tr><td>?</td><td>No pings sent / No data</td></tr>
+</table>
+
+<p><strong>Uptime</strong> shows the weighted Uptime percentage over 12 days.</p>
+
+<p><strong>Options</strong> shows an abbreviated form of the strings listed in
+the Remailer-Capabilities section above:</p>
+<table class="legend">
+<tr><td>D</td><td>middle (Remailer is middleman and chains to other remailers)</td></tr>
+<tr><td>P</td><td>post (Supports news posting (Anon-Post-To or Post))</td></tr>
+<tr><td>M/R/2</td><td>mix/remix/remix2 (Supported Mixmaster features)</td></tr>
+<tr><td>H</td><td>hybrid (Supports CPunk directives in Mix messages)</td></tr>
+<tr><td>G/2</td><td>repgp/repgp2</td></tr>
+<tr><td>O</td><td>pgponly (Requires Cypherpunk messages to be PGP encrypted)</td></tr>
+<tr><td>X</td><td>ext (Supports extended directive features)</td></tr>
+<tr><td>A</td><td>max (Supports Max-Size, Max-Count, and Max-Date directives)</td></tr>
+<tr><td>T</td><td>test (Supports the Test-To directive)</td></tr>
+<tr><td>L</td><td>latent (Supports the Latent-Time directive)</td></tr>
+<tr><td>e/E</td><td>ek/ekx (Supports Encrypt-Key/-3DES,-CAST directives)</td></tr>
+<tr><td>U</td><td>esub (Supports the Encrypt-Subject directive)</td></tr>
+<tr><td>I</td><td>inflt (Supports the Inflate directive)</td></tr>
+<tr><td>N</td><td>rhop (Supports the Rand-Hop directive)</td></tr>
+<tr><td>#</td><td>klen: the digit is the maximum message size: 9 more than 900K,
+8 less than 900K, …, 1 less than 200K, 0 less than 100K</td></tr>
+</table>
+</main>
+<footer>
+<p>Created by go-echolot v0.3.0 at <time datetime="2026-10-22T13:05:00Z">Thu 22 Oct 2026 13:05:00 GMT</time>.<br>
+This pinger is operated by <code>pinger (at) example.org</code>.<br>
+All times in Coordinated Universal Time (UTC).</p>
+</footer>
+</body>
+</html>

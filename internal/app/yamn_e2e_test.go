@@ -139,4 +139,76 @@ func TestYamnEndToEnd(t *testing.T) {
 	if !bytes.Contains(ml, []byte("\nexit1 ")) || !strings.Contains(string(ml), "100.0%") {
 		t.Errorf("mlist2.txt:\n%s\nlog:\n%s", ml, h.log)
 	}
+
+	// The HTML pages (phase 3): the remailer, its replies and its fromline
+	// from the real exit.
+	www := h.cfg.Paths.ResultsDir
+	for _, f := range []string{"index.html", "mlist2.html", "fromlines.html", "thesaurus/index.html", "echolot.css"} {
+		if _, err := os.Stat(filepath.Join(www, f)); err != nil {
+			t.Errorf("%s: %v", f, err)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(www, "mlist2.html")); !bytes.Contains(b, []byte("exit1")) {
+		t.Errorf("mlist2.html lacks exit1")
+	}
+	if txt, _ := filepath.Glob(filepath.Join(www, "thesaurus", "*.key.txt")); len(txt) != 1 {
+		t.Errorf("thesaurus replies: %v", txt)
+	}
+	var fl string
+	h.st.View(func(st *store.State) {
+		for _, f := range st.Fromlines[rem.addr] {
+			fl = f.From
+		}
+	})
+	if b, _ := os.ReadFile(filepath.Join(www, "fromlines.html")); fl == "" || !bytes.Contains(b, []byte("exit1")) {
+		t.Errorf("fromline %q; fromlines.html:\n%s", fl, b)
+	}
+}
+
+// TestYamnChainPing: a chain ping through two real yamn remailers, A then
+// B, comes back and is done.
+func TestYamnChainPing(t *testing.T) {
+	bin := os.Getenv("YAMN_BIN")
+	if bin == "" {
+		t.Skip("YAMN_BIN not set")
+	}
+	a, b := newYamnRemailer(t, bin, "exita"), newYamnRemailer(t, bin, "exitb")
+	// A forwards to B only if B's key is in A's pubring (yamn checkNextHop).
+	bKey, _ := os.ReadFile(filepath.Join(b.dir, "key.txt"))
+	os.WriteFile(filepath.Join(a.dir, "pubring.mix"), bKey, 0o600)
+	h := newHarnessAt(t, false, time.Now().UTC().Truncate(time.Second))
+	h.d.encoder = &pinger.YamnEncoder{Binary: bin, Timeout: 30 * time.Second, Sender: h.cfg.Pinger.Address}
+	rems := map[string]remailer{}
+	for _, r := range []*yamnRemailer{a, b} {
+		nick := strings.TrimSuffix(r.addr, "@example.invalid")
+		h.command("add", r.addr, nick)
+		key, _ := os.ReadFile(filepath.Join(r.dir, "key.txt"))
+		rems[r.addr] = remailer{nick, r.addr, "Here is the Mixmaster key:\n\n=-=-=-=-=-=-=-=-=-=-=-=\n" + string(key)}
+	}
+	h.command("getkeyconf")
+	for _, m := range h.mailer.take() {
+		h.answer(m, rems, yamnReply)
+	}
+	h.d.ScanMail(context.Background())
+
+	h.command("sendchainpings", a.addr+":"+b.addr)
+	sent := h.mailer.take()
+	if len(sent) != 1 || sent[0].Rcpt[0] != a.addr {
+		t.Fatalf("chain pings sent: %d\n%s", len(sent), h.log)
+	}
+	fromA := a.deliver(t, sent[0].Data)
+	if len(fromA) != 1 {
+		t.Fatalf("A sent %d mails", len(fromA))
+	}
+	fromB := b.deliver(t, fromA[0])
+	if len(fromB) != 1 {
+		t.Fatalf("B sent %d mails", len(fromB))
+	}
+	h.clock.Advance(2 * time.Minute)
+	h.deliver(string(fromB[0]))
+	h.d.ScanMail(context.Background())
+	cps := h.st.ChainPings(time.Time{})
+	if len(cps) != 1 || cps[0].Status != store.PingDone || cps[0].A != a.addr || cps[0].B != b.addr {
+		t.Errorf("chain pings: %+v\n%s", cps, h.log)
+	}
 }

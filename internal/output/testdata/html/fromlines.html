@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="generator" content="go-echolot v0.3.0">
+<title>From Headers [Test Pinger]</title>
+<link rel="stylesheet" href="./echolot.css">
+</head>
+<body>
+<header>
+<h1>From Headers <span class="site">[Test Pinger]</span></h1>
+<nav><a href="./">Up</a></nav>
+</header>
+<main>
+<h2>Default From: Headers</h2>
+<p>The default From headers of all remailers when sending e-mail. Middleman
+remailers are not listed here.</p>
+
+<div class="scroll">
+<table class="from">
+<thead><tr><th>Nick</th><th>Disclaimer</th><th>From Line</th><th>Seen</th></tr></thead>
+<tbody>
+<tr><td>alpha</td><td class="disclaim"> bot</td><td class="fromline"><code>From: Nobody &lt;nobody@example.org&gt;</code></td><td class="date"><time datetime="2026-10-21T11:05:00Z">2026-10-21 11:05</time></td></tr>
+<tr><td>gamma</td><td class="disclaim"> </td><td class="fromline">Not Available</td><td class="date">N/A</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>User Supplied From: Headers</h2>
+<p>If a message sent with a user supplied From header differs from one
+without, the remailer is listed here. The difference can either be an
+additional disclaimer, actually allowing (partial) From headers, etc.</p>
+
+<div class="scroll">
+<table class="from">
+<thead><tr><th>Nick</th><th>Disclaimer</th><th>From Line</th><th>Seen</th></tr></thead>
+<tbody>
+<tr><td>alpha</td><td class="disclaim">top bot</td><td class="fromline"><code>From: User Supplied &lt;nobody@example.org&gt;</code></td><td class="date"><time datetime="2026-10-21T11:05:00Z">2026-10-21 11:05</time></td></tr>
+</tbody>
+</table>
+</div>
+</main>
+<footer>
+<p>Created by go-echolot v0.3.0 at <time datetime="2026-10-22T13:05:00Z">Thu 22 Oct 2026 13:05:00 GMT</time>.<br>
+This pinger is operated by <code>pinger (at) example.org</code>.<br>
+All times in Coordinated Universal Time (UTC).</p>
+</footer>
+</body>
+</html>

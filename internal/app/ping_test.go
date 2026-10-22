@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,4 +117,101 @@ func TestProofAfterCrash(t *testing.T) {
 			t.Errorf("key not proven after the mail came again\n%s", h.log)
 		}
 	})
+}
+
+// TestFromlines: a ping that comes back records the exit's From header
+// and whether it added text above or below (E:Pinger.pm:150-205).
+func TestFromlines(t *testing.T) {
+	h, real, _ := pingHarness(t)
+	for i, tc := range []struct {
+		withFrom   bool
+		from, pre  string
+		post       string
+		top, bot   bool
+		wantFrom   string
+		wantStored bool
+	}{
+		{false, "Nobody <nobody@exit.example>", "", "", false, false, "Nobody <nobody@exit.example>", true},
+		{true, "pinger@pinger.example.org", "This mail was sent anonymously.\n\n", "\n-- \nAbuse: abuse@exit.example\n", true, true, "pinger@pinger.example.org", true},
+	} {
+		sent := h.clock.Now().Add(time.Duration(i) * time.Second)
+		p, _ := h.st.AddPing(store.Ping{Addr: "yamn@virebent.art", KeyID: real, WithFrom: tc.withFrom, Sent: sent})
+		sealed, _ := pinger.Seal(&h.d.macKey, &h.d.boxKey, pinger.Body{Remailer: p.Addr, Type: pinger.TypeMix,
+			KeyID: real, WithFrom: tc.withFrom, Sent: p.Sent, ID: p.ID}, 64, rand.Reader)
+		to, _ := h.d.minter.Address(token.Token{Kind: token.KindPing, Time: p.Sent})
+		h.clock.Advance(time.Minute)
+		h.deliver(fmt.Sprintf("From: %s\nTo: %s\n\n%s%s%s", tc.from, to, tc.pre, sealed, tc.post))
+		h.d.ScanMail(context.Background())
+		h.st.View(func(st *store.State) {
+			wf := 0
+			if tc.withFrom {
+				wf = 1
+			}
+			f, ok := st.Fromlines["yamn@virebent.art"][wf]
+			if !ok || f.From != tc.wantFrom || f.DisclaimTop != tc.top || f.DisclaimBot != tc.bot {
+				t.Errorf("case %d: %+v %v\n%s", i, f, ok, h.log)
+			}
+		})
+	}
+	// Expired after 5 days.
+	h.st.Update(func(st *store.State) error { expireFromlines(st, h.clock.Now().Add(6*24*time.Hour)); return nil })
+	h.st.View(func(st *store.State) {
+		if len(st.Fromlines) != 0 {
+			t.Errorf("not expired: %+v", st.Fromlines)
+		}
+	})
+	if got := cleanFrom("a\x00bé" + strings.Repeat("x", 300)); strings.ContainsAny(got, "\x00é") || len(got) > maxFromLen+3 {
+		t.Errorf("cleanFrom: %q", got)
+	}
+}
+
+// TestBrokenChains: chain pings that don't come back make a broken chain
+// in mlist2.txt; the sections are always printed with chain pings on.
+func TestBrokenChains(t *testing.T) {
+	h := newHarness(t, false)
+	h.d.encoder = plainEncoder{}
+	// victor is added with its domain in upper case: its key says
+	// yamn@virebent.art (same address, §6.4), the chain pings and their
+	// evaluation must still match (review of phase 3).
+	stored := map[string]string{"victor": "yamn@VIREBENT.art", "yamn4": "yamn4@mixmin.net"}
+	for _, nick := range []string{"victor", "yamn4"} {
+		k := replies.ParseKey([]byte(liveKey(t, nick))).Keys[0]
+		h.command("add", stored[nick], nick)
+		h.st.Update(func(st *store.State) error {
+			r := st.Remailers[stored[nick]]
+			r.Conf = &store.Conf{Nick: nick, Caps: fmt.Sprintf(`$remailer{"%s"} = "<%s> v2";`, nick, k.Address)}
+			r.Keys = map[string]*store.Key{k.KeyID: {KeyID: k.KeyID, Nick: nick, Address: k.Address, Version: k.Version,
+				Caps: k.Caps, Created: k.Created, Expires: k.Expires, PK: store.PublicKey(k.PK), LastSeen: h.clock.Now(),
+				State: store.KeyStateActive}}
+			return nil
+		})
+	}
+	h.clock.Advance(12 * time.Hour) // keys of 2026-10-17..31 valid; e2eStart is 10-22 00:00
+	for range 3 {
+		h.command("sendchainpings", "yamn@VIREBENT.art:yamn4@mixmin.net")
+		h.clock.Advance(24 * time.Hour)
+	}
+	if got := len(h.st.ChainPings(time.Time{})); got != 3 {
+		t.Fatalf("%d chain pings journalled\n%s", got, h.log)
+	}
+	if n := len(h.mailer.take()); n != 3 {
+		t.Errorf("%d chain pings sent", n)
+	}
+	h.command("buildstats")
+	ml, _ := os.ReadFile(filepath.Join(h.cfg.Paths.PrivateResultsDir, "mlist2.txt"))
+	if !strings.Contains(string(ml), "Broken type-I remailer chains:\n") || !strings.Contains(string(ml), "Broken type-II remailer chains:\n(") {
+		t.Errorf("mlist2.txt:\n%s", ml)
+	}
+	html, _ := os.ReadFile(filepath.Join(h.cfg.Paths.ResultsDir, "mlist2.html"))
+	if !strings.Contains(string(html), "victor") {
+		t.Errorf("mlist2.html lacks the chain")
+	}
+
+	// The mail fuse stops the loop: one try, not every pair.
+	h.mailer.fail = fmt.Errorf("fuse: %w", mailout.ErrRateLimited)
+	before := len(h.st.ChainPings(time.Time{}))
+	h.command("sendchainpings", "all")
+	if !strings.Contains(h.log.String(), "mail.max_per_hour reached: chain pings left") || len(h.st.ChainPings(time.Time{})) != before {
+		t.Errorf("rate limit: %d chain pings\n%s", len(h.st.ChainPings(time.Time{})), h.log)
+	}
 }

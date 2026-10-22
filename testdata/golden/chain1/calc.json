@@ -1,0 +1,263 @@
+{
+   "alpha@example.org" : {
+      "avr_latency" : 600,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         null,
+         600,
+         600,
+         600,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         1,
+         1,
+         1
+      ]
+   },
+   "bravo@example.org" : {
+      "avr_latency" : 600,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         null,
+         600,
+         600,
+         600,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         1,
+         1,
+         1
+      ]
+   },
+   "charlie@example.org" : {
+      "avr_latency" : 1200,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         null,
+         1200,
+         1200,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         1,
+         1
+      ]
+   },
+   "delta@example.org" : {
+      "avr_latency" : 600,
+      "avr_reliability" : 0.5,
+      "latency_day" : [
+         null,
+         null,
+         600,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         null,
+         0.5
+      ]
+   },
+   "echo@example.org" : {
+      "avr_latency" : null,
+      "avr_reliability" : 0,
+      "latency_day" : [
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         0,
+         0
+      ]
+   },
+   "fox@example.org" : {
+      "avr_latency" : 600,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         null,
+         600,
+         600,
+         600,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         1,
+         1,
+         1
+      ]
+   },
+   "golf@example.org" : {
+      "avr_latency" : 600,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         null,
+         600,
+         600,
+         600,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         1,
+         1,
+         1
+      ]
+   },
+   "hotel@example.org" : {
+      "avr_latency" : 600,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         null,
+         600,
+         600,
+         600,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         1,
+         1,
+         1
+      ]
+   },
+   "india@example.org" : {
+      "avr_latency" : 600,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         null,
+         600,
+         600,
+         600,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         1,
+         1,
+         1
+      ]
+   },
+   "juliet@example.org" : {
+      "avr_latency" : 600,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         null,
+         600,
+         600,
+         600,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         1,
+         1,
+         1
+      ]
+   },
+   "kilo@example.org" : {
+      "avr_latency" : 600,
+      "avr_reliability" : 1,
+      "latency_day" : [
+         null,
+         600,
+         600,
+         600,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null,
+         null
+      ],
+      "reliability_day" : [
+         null,
+         1,
+         1,
+         1
+      ]
+   }
+}

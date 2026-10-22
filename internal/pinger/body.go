@@ -26,14 +26,25 @@ import (
 const TypeMix = "mix"
 
 // Body is what a ping says (design §6.3).
+//
+// A chain ping (design §8.2) also names its second hop: Remailer and
+// KeyID are the first hop, Remailer2 and KeyID2 the second, which
+// delivers it.  ID is then the chain ping journal's ID, and the MAC covers
+// both hops (as Echolot's chain ping MAC, E:Chain.pm:98-109).  A body
+// without Remailer2 is a plain ping, its plaintext unchanged.
 type Body struct {
-	Remailer string    // the address the ping went to
-	Type     string    // TypeMix
-	KeyID    string    // the key it was encrypted to, 32 hex digits
-	WithFrom bool      // the mail given to yamn had a From line (E:Pinger.pm:142)
-	Sent     time.Time // when it was made; whole seconds
-	ID       uint64    // the journal's ping ID
+	Remailer  string    // the address the ping went to (a chain's first hop)
+	Type      string    // TypeMix
+	KeyID     string    // the key it was encrypted to, 32 hex digits
+	Remailer2 string    // chain pings: the second hop; "" for a ping
+	KeyID2    string    // chain pings: the second hop's key
+	WithFrom  bool      // the mail given to yamn had a From line (E:Pinger.pm:142)
+	Sent      time.Time // when it was made; whole seconds
+	ID        uint64    // the journal's ping ID (chain ping ID for a chain ping)
 }
+
+// Chain reports whether b is a chain ping.
+func (b Body) Chain() bool { return b.Remailer2 != "" }
 
 // Errors of Seal and Open.  Use errors.Is.
 var (
@@ -61,6 +72,10 @@ func (b Body) check() error {
 		return fmt.Errorf("%w: unknown type %q", ErrMalformed, b.Type)
 	case !isKeyID(b.KeyID):
 		return fmt.Errorf("%w: bad keyid %q", ErrMalformed, b.KeyID)
+	case b.Remailer2 != "" && !replies.ValidAddress(b.Remailer2):
+		return fmt.Errorf("%w: bad second remailer address %q", ErrMalformed, b.Remailer2)
+	case b.Remailer2 != "" && !isKeyID(b.KeyID2), b.Remailer2 == "" && b.KeyID2 != "":
+		return fmt.Errorf("%w: bad second keyid %q", ErrMalformed, b.KeyID2)
 	case b.Sent.Unix() <= 0:
 		return fmt.Errorf("%w: no sent time", ErrMalformed)
 	case b.ID == 0:
@@ -90,11 +105,19 @@ func boolDigit(v bool) string {
 }
 
 // mac returns hex(HMAC-SHA256(key, "v1:"+remailer+":"+type+":"+key+":"+
-// with_from+":"+sent+":"+id)), design §6.3.
+// with_from+":"+sent+":"+id)), design §6.3.  For a chain ping the input
+// is "chain1:"+remailer+":"+type+":"+key+":"+remailer2+":"+key2+":"+
+// with_from+":"+sent+":"+id: its own prefix, so neither kind's MAC can
+// pass for the other's.
 func (b Body) mac(key *[32]byte) string {
 	h := hmac.New(sha256.New, key[:])
-	h.Write([]byte("v1:" + b.Remailer + ":" + b.Type + ":" + b.KeyID + ":" +
-		boolDigit(b.WithFrom) + ":" + strconv.FormatInt(b.Sent.Unix(), 10) + ":" +
+	if b.Chain() {
+		h.Write([]byte("chain1:" + b.Remailer + ":" + b.Type + ":" + b.KeyID + ":" +
+			b.Remailer2 + ":" + b.KeyID2 + ":"))
+	} else {
+		h.Write([]byte("v1:" + b.Remailer + ":" + b.Type + ":" + b.KeyID + ":"))
+	}
+	h.Write([]byte(boolDigit(b.WithFrom) + ":" + strconv.FormatInt(b.Sent.Unix(), 10) + ":" +
 		strconv.FormatUint(b.ID, 10)))
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -102,10 +125,14 @@ func (b Body) mac(key *[32]byte) string {
 // header returns the fields of the plaintext, up to and including the
 // mac line.
 func (b Body) header(macKey *[32]byte) string {
-	return "remailer: " + b.Remailer + "\n" +
+	s := "remailer: " + b.Remailer + "\n" +
 		"type: " + b.Type + "\n" +
-		"key: " + b.KeyID + "\n" +
-		"with_from: " + boolDigit(b.WithFrom) + "\n" +
+		"key: " + b.KeyID + "\n"
+	if b.Chain() {
+		s += "remailer2: " + b.Remailer2 + "\n" +
+			"key2: " + b.KeyID2 + "\n"
+	}
+	return s + "with_from: " + boolDigit(b.WithFrom) + "\n" +
 		"sent: " + strconv.FormatInt(b.Sent.Unix(), 10) + "\n" +
 		"id: " + strconv.FormatUint(b.ID, 10) + "\n" +
 		"mac: " + b.mac(macKey) + "\n"
@@ -139,6 +166,10 @@ func garbageSize(n int) int {
 func parseBody(macKey *[32]byte, plain []byte) (Body, error) {
 	lines := strings.Split(string(plain), "\n")
 	names := []string{"remailer", "type", "key", "with_from", "sent", "id", "mac"}
+	chain := len(lines) > 3 && strings.HasPrefix(lines[3], "remailer2: ")
+	if chain {
+		names = []string{"remailer", "type", "key", "remailer2", "key2", "with_from", "sent", "id", "mac"}
+	}
 	if len(lines) < len(names)+3 {
 		return Body{}, fmt.Errorf("%w: too few lines", ErrMalformed)
 	}
@@ -154,6 +185,11 @@ func parseBody(macKey *[32]byte, plain []byte) (Body, error) {
 	if rest[0] != garbageBegin || rest[len(rest)-2] != garbageEnd || rest[len(rest)-1] != "" {
 		return Body{}, fmt.Errorf("%w: no garbage block", ErrMalformed)
 	}
+	var b Body
+	if chain {
+		b.Remailer2, b.KeyID2 = vals[3], vals[4]
+		vals = append(vals[:3], vals[5:]...)
+	}
 	sent, err := strconv.ParseInt(vals[4], 10, 64)
 	if err != nil {
 		return Body{}, fmt.Errorf("%w: sent: %v", ErrMalformed, err)
@@ -165,13 +201,12 @@ func parseBody(macKey *[32]byte, plain []byte) (Body, error) {
 	if vals[3] != "0" && vals[3] != "1" {
 		return Body{}, fmt.Errorf("%w: with_from %q", ErrMalformed, vals[3])
 	}
-	b := Body{
-		Remailer: vals[0],
-		Type:     vals[1],
-		KeyID:    vals[2],
-		WithFrom: vals[3] == "1",
-		Sent:     time.Unix(sent, 0).UTC(),
-		ID:       id,
+	b.Remailer, b.Type, b.KeyID = vals[0], vals[1], vals[2]
+	b.WithFrom = vals[3] == "1"
+	b.Sent = time.Unix(sent, 0).UTC()
+	b.ID = id
+	if chain && b.Remailer2 == "" {
+		return Body{}, fmt.Errorf("%w: empty remailer2", ErrMalformed)
 	}
 	if err := b.check(); err != nil {
 		return Body{}, err

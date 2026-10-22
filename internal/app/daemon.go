@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-while/go-echolot/internal/chain"
 	"github.com/go-while/go-echolot/internal/config"
 	"github.com/go-while/go-echolot/internal/keys"
 	"github.com/go-while/go-echolot/internal/mailin"
@@ -58,6 +59,8 @@ func bounded(s string) string {
 
 // Daemon is the running pinger: `go-echolot run`.
 type Daemon struct {
+	Version string // shown on the HTML pages
+
 	cfg      *config.Config
 	st       *store.Store
 	minter   *token.Minter
@@ -75,6 +78,9 @@ type Daemon struct {
 	lastTok map[string]int64 // kind.id -> last token time minted, unix
 
 	tickBudget time.Duration // how long a request tick may take: schedule.tick
+
+	chainRes chain.Result // the last evaluation of the chains (§8.2)
+	chainAt  time.Time    // when it was made; zero: not yet
 }
 
 // NewDaemon returns the daemon for cfg on the open store st.  mailer sends
@@ -187,7 +193,12 @@ func (d *Daemon) Tick(ctx context.Context, at time.Time) {
 	ctx, cancel := context.WithTimeout(ctx, d.tickBudget)
 	defer cancel()
 	d.Requests(ctx, at, nil, false)
-	d.Pings(ctx, at, nil, false)
+	if ctx.Err() == nil {
+		d.Pings(ctx, at, nil, false)
+	}
+	if ctx.Err() == nil {
+		d.ChainPings(ctx, at, nil, false)
+	}
 }
 
 // Requests sends the requests due at the tick at (design §6.2, §8.3).
@@ -240,6 +251,9 @@ func (d *Daemon) Requests(ctx context.Context, at time.Time, only []string, now 
 		case errors.Is(err, mailout.ErrOnionWithoutTor):
 			d.log.Info("skipping .onion remailer: mail.tor_socks is not set", "remailer", q.addr)
 			continue
+		case errors.Is(err, mailout.ErrRateLimited):
+			d.log.Warn("mail.max_per_hour reached: requests left for their next slot", "left", len(due)-i)
+			return
 		case mailout.IsPermanent(err):
 			// The remailer's side refused it: like a bounce, it counts
 			// as a request without a reply (Y-41: no retrying for days).
@@ -329,7 +343,7 @@ func (d *Daemon) Handle(ctx context.Context, tok token.Token, m *mailin.Message)
 	case token.KindPing:
 		return d.receivePing(tok, m)
 	case token.KindChainping:
-		return mailin.Permanent(errors.New("chain pings are handled from phase 3 on"))
+		return d.receiveChainPing(tok, m)
 	case token.KindBounce:
 		var addr string
 		d.st.View(func(st *store.State) {
@@ -463,6 +477,7 @@ func (d *Daemon) Daily(at time.Time) {
 	var ids map[int]bool
 	if err := d.st.Update(func(st *store.State) error {
 		results = keys.Expire(st, at, d.cfg.Keys)
+		expireFromlines(st, at)
 		ids = map[int]bool{}
 		for _, r := range st.Remailers {
 			ids[r.ID] = true
@@ -474,6 +489,9 @@ func (d *Daemon) Daily(at time.Time) {
 	d.logResults(results)
 	if err := d.st.Compact(at.Add(-pingRetention)); err != nil {
 		d.log.Error("ping journal compaction", "err", err)
+	}
+	if err := d.st.CompactChains(at.Add(-chain.Expire)); err != nil {
+		d.log.Error("chain ping journal compaction", "err", err)
 	}
 	if n, err := mailin.PruneErrors(d.scanner.ErrorsDir, at, mailin.ErrorRetention); err != nil {
 		d.log.Error("mail-errors", "err", err)
@@ -520,6 +538,9 @@ func (d *Daemon) Command(ctx context.Context, c Command, at time.Time) []string 
 	case "sendpings":
 		d.Pings(ctx, at, c.Args, true)
 		out = []string{"pings sent"}
+	case "sendchainpings":
+		d.ChainPings(ctx, at, c.Args, true)
+		out = []string{"chain pings sent"}
 	case "buildstats":
 		d.BuildStats(at)
 		out = []string{"stats written"}

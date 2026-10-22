@@ -3,6 +3,7 @@
 
 ECHOLOT ?=
 GOLDEN_CASES := 1 2 3 4 5
+CHAIN_CASES := 1 2 3
 
 .PHONY: golden test
 
@@ -16,6 +17,13 @@ golden:
 		d=testdata/golden/case$$n; \
 		rm -rf $$d && mkdir -p $$d && \
 		python3 tools/golden/gen.py $$n > $$d/in.json && \
+		perl tools/golden/harness.pl "$(ECHOLOT)/Echolot/Stats.pm" $$d/in.json $$d || exit 1; \
+		echo "$$d"; \
+	done
+	@for n in $(CHAIN_CASES); do \
+		d=testdata/golden/chain$$n; \
+		rm -rf $$d && mkdir -p $$d && \
+		python3 tools/golden/gen.py chain$$n > $$d/in.json && \
 		perl tools/golden/harness.pl "$(ECHOLOT)/Echolot/Stats.pm" $$d/in.json $$d || exit 1; \
 		echo "$$d"; \
 	done

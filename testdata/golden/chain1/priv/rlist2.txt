@@ -1,0 +1,29 @@
+Stats-Version: 2.0
+Generated: Wed 21 Oct 2026 08:45:45 GMT
+Cypherpunk   Latent-Hist   Latent  Uptime-Hist   Uptime  Options
+------------------------------------------------------------------------
+
+Broken type-I remailer chains:
+(* *)
+(* bravo)
+(* zulu)
+(alpha *)
+
+Broken type-II remailer chains:
+
+(* bravo)
+(* kilo)
+(* lima)
+(alpha delta)
+(bravo india)
+(echo *)
+(fox alpha)
+(india alpha)
+(juliet *)
+(kilo  x)
+not a chain
+
+
+
+Remailer-Capabilities:
+

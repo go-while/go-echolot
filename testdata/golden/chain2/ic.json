@@ -1,0 +1,16 @@
+{
+   "alpha@example.org bravo@example.org" : "bad: 0/12",
+   "alpha@example.org echo@example.org" : "bad: 0/8",
+   "bravo@example.org charlie@example.org" : "bad: 0/3",
+   "bravo@example.org delta@example.org" : "only 1 sample, none returned so far",
+   "bravo@example.org echo@example.org" : "bad: 0/3",
+   "delta@example.org charlie@example.org" : "bad: 0/13",
+   "delta@example.org echo@example.org" : "bad: 0/11",
+   "echo@example.org alpha@example.org" : "bad: 0/4",
+   "echo@example.org bravo@example.org" : "bad: 0/9",
+   "echo@example.org charlie@example.org" : "only 2 samples, none returned so far",
+   "echo@example.org delta@example.org" : "bad: 0/8",
+   "echo@example.org foxtrot@example.org" : "bad: 0/4",
+   "foxtrot@example.org charlie@example.org" : "only 1 sample, none returned so far",
+   "foxtrot@example.org echo@example.org" : "bad: 0/9"
+}

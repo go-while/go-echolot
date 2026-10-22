@@ -59,9 +59,13 @@ func (d *Daemon) Pings(ctx context.Context, at time.Time, only []string, now boo
 	})
 	withFrom := sched.WithFrom(at, s.PingInterval)
 	for i, p := range due {
-		err := d.sendPing(ctx, p.id, p.addr, p.key, withFrom, p.counted)
 		if ctx.Err() != nil {
-			d.log.Warn("tick over: pings left for their next slot", "remailer", p.addr, "left", len(due)-i)
+			d.log.Warn("tick over: pings left for their next slot", "left", len(due)-i)
+			return
+		}
+		err := d.sendPing(ctx, p.id, p.addr, p.key, withFrom, p.counted)
+		if errors.Is(err, mailout.ErrRateLimited) {
+			d.log.Warn("mail.max_per_hour reached: pings left", "left", len(due)-i)
 			return
 		}
 		if err != nil {
@@ -150,6 +154,9 @@ func (d *Daemon) receivePing(tok token.Token, m *mailin.Message) error {
 	if err != nil {
 		return mailin.Permanent(fmt.Errorf("ping: %w", err))
 	}
+	if b.Chain() {
+		return mailin.Permanent(errors.New("a chain ping on a plain ping token"))
+	}
 	p, ok := d.st.Ping(b.ID)
 	switch {
 	case !ok:
@@ -183,6 +190,12 @@ func (d *Daemon) receivePing(tok token.Token, m *mailin.Message) error {
 	}
 	if news {
 		d.log.Debug("ping back", "remailer", p.Addr, "keyid", p.KeyID, "latency", latency)
+		if err := d.st.Update(func(st *store.State) error {
+			recordFromline(st, p.Addr, p.WithFrom, m.Header.Get("From"), body, received)
+			return nil
+		}); err != nil {
+			d.log.Error("fromline not saved", "remailer", p.Addr, "err", err)
+		}
 	}
 	if proven {
 		d.log.Info("key proven: a ping to it came back", "remailer", p.Addr, "keyid", p.KeyID)
@@ -202,8 +215,13 @@ func (d *Daemon) BuildStats(at time.Time) {
 		counted          func(store.Ping) bool
 	}
 	var rems []rem
+	var htmlRems []output.Remailer
 	d.st.View(func(st *store.State) {
 		for _, r := range st.Remailers {
+			if r.Conf != nil {
+				htmlRems = append(htmlRems, output.Remailer{ID: r.ID, Nick: r.Conf.Nick, Address: r.Address,
+					Caps: r.Conf.Caps, ListIt: output.ListIt(r.ShowIt, r.Conf.Caps), Fromlines: maps.Clone(st.Fromlines[r.Address])})
+			}
 			if r.Conf == nil || len(r.Keys) == 0 {
 				continue
 			}
@@ -233,18 +251,33 @@ func (d *Daemon) BuildStats(at time.Time) {
 		rows = append(rows, output.Row{Nick: r.nick, Address: r.addr, Caps: r.caps,
 			ListIt: output.ListIt(r.showIt, r.caps), Stats: res})
 	}
-	sec := d.sections()
+	pubSec, privSec := d.chainSections(rows, at)
 	for _, w := range []struct {
 		dir  string
 		rows []output.Row
-	}{{d.cfg.Paths.PrivateResultsDir, rows}, {d.cfg.Paths.ResultsDir, output.Public(rows)}} {
+		sec  output.Sections
+	}{{d.cfg.Paths.PrivateResultsDir, rows, privSec}, {d.cfg.Paths.ResultsDir, output.Public(rows), pubSec}} {
 		if err := os.MkdirAll(w.dir, 0o755); err != nil {
 			d.log.Error("stats", "dir", w.dir, "err", err)
 			continue
 		}
-		if err := output.WriteStats(w.dir, w.rows, sec, at, d.cfg.Stats.SortByLatency, d.cfg.Compat.MetaFiles); err != nil {
+		if err := output.WriteStats(w.dir, w.rows, w.sec, at, d.cfg.Stats.SortByLatency, d.cfg.Compat.MetaFiles); err != nil {
 			d.log.Error("stats not written", "dir", w.dir, "err", err)
 		}
+	}
+	// The HTML pages, public only (§7.5), from the same rows.
+	replies, err := output.ReadReplies(filepath.Join(d.cfg.Paths.StateDir, thesaurusDir))
+	if err != nil {
+		d.log.Error("thesaurus", "err", err)
+	}
+	err = output.WriteHTML(d.cfg.Paths.ResultsDir, output.Pages{
+		Site:     output.Site{Name: d.cfg.Pinger.Sitename, Operator: d.cfg.Pinger.OperatorAddress, Version: d.Version},
+		Rows:     rows,
+		Sections: pubSec, SortByLatency: d.cfg.Stats.SortByLatency,
+		Remailers: htmlRems, Replies: replies, Meta: d.cfg.Compat.MetaFiles,
+	}, at)
+	if err != nil {
+		d.log.Error("HTML pages not written", "err", err)
 	}
 }
 

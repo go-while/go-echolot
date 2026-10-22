@@ -1,0 +1,72 @@
+/* go-echolot's own stylesheet (design §7.5): light and dark, readable
+   on a phone.  No external resources. */
+:root {
+	color-scheme: light dark;
+	--bg: #fdfdfc;
+	--fg: #1d1f21;
+	--muted: #5c6166;
+	--line: #d5d8dc;
+	--head: #eef1f4;
+	--stripe: #f6f7f9;
+	--link: #0b5cad;
+	--visited: #6a3d9a;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #15171a;
+		--fg: #e3e5e8;
+		--muted: #9aa0a6;
+		--line: #3a3f45;
+		--head: #23272c;
+		--stripe: #1b1e22;
+		--link: #7ab7ff;
+		--visited: #c3a6ff;
+	}
+}
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+	margin: 0 auto;
+	max-width: 72rem;
+	padding: 0 1rem 2rem;
+	background: var(--bg);
+	color: var(--fg);
+	font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	overflow-wrap: anywhere;
+}
+h1 { font-size: 1.5rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+h1 .site { color: var(--muted); font-weight: 400; }
+h2 { font-size: 1.25rem; font-weight: 600; margin: 1.75rem 0 0.5rem; }
+h3 { font-size: 1.05rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+a { color: var(--link); }
+a:visited { color: var(--visited); }
+nav { margin: 0 0 1rem; }
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 0.9rem; }
+pre {
+	background: var(--stripe);
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	padding: 0.5rem 0.75rem;
+	overflow-x: auto;
+	overflow-wrap: normal;
+	white-space: pre;
+}
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; margin: 0.5rem 0; }
+th, td { border: 1px solid var(--line); padding: 0.3rem 0.6rem; text-align: left; vertical-align: top; }
+th { background: var(--head); font-weight: 600; }
+tbody tr:nth-child(even) { background: var(--stripe); }
+.stats td.mono { white-space: pre; }
+.num { text-align: right; white-space: nowrap; }
+.date, .disclaim { text-align: center; white-space: nowrap; }
+.addr { word-break: break-all; }
+table.legend td { border: 0; padding: 0.1rem 0.6rem 0.1rem 0; }
+table.legend tr { background: none; }
+table.legend td:first-child { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; }
+.none { color: var(--muted); }
+.fpr { font-size: 1rem; word-break: break-all; }
+footer { margin-top: 2.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+@media (max-width: 40rem) {
+	body { padding: 0 0.6rem 1.5rem; }
+	th, td { padding: 0.25rem 0.4rem; }
+	code, pre, .mono { font-size: 0.8rem; }
+}
