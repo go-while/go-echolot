@@ -190,6 +190,8 @@ internal/civil           Date: a calendar date in UTC (yamn's "2006-01-02" key d
 
 ### 4.1 Key interfaces (sketch)
 
+This was the plan before the code. Where they differ, the code is right: `mailin` is a `Scanner` struct with `Scan(ctx)`; `mailout.New(cfg.Mail, password, Options)` builds the routing, rate-limited mailer, and `ComposeRequest` takes the subject and body; `keys.Apply*Reply` take an extra `now`; `sched.Loop` has `Debounced` and `OnTick` besides `Every` and `Trigger`.
+
 ```go
 // config
 type Config struct { Pinger PingerCfg; Paths PathsCfg; Yamn YamnCfg; Mail MailCfg;
@@ -1093,6 +1095,7 @@ require_tls = false
 username =
 password_file =
 max_per_hour = 200
+tor_socks =                             # Tor SOCKS host:port for .onion remailers; empty: skip them
 
 [schedule]
 tick = 5m

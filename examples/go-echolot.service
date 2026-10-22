@@ -1,0 +1,25 @@
+# systemd unit for go-echolot (docs/design.md §10.1).
+# go-echolot tells systemd when it's ready, and sends a watchdog ping
+# after every completed scheduler tick.
+[Unit]
+Description=go-echolot yamn pinger
+After=network-online.target postfix.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=pinger
+ExecStart=/usr/local/bin/go-echolot run --config /etc/go-echolot/config.ini
+# go-echolot add/approve/... reach the running daemon through its command
+# spool and SIGHUP; ExecReload does the same for queued commands.
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=30
+WatchdogSec=10min
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/go-echolot /var/www/pinger/yamn
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

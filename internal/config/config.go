@@ -71,6 +71,7 @@ type Mail struct {
 	Username     string `ini:"username"`
 	PasswordFile string `ini:"password_file"`
 	MaxPerHour   int    `ini:"max_per_hour"` // abuse fuse (§8.3)
+	TorSocks     string `ini:"tor_socks"`    // Tor SOCKS host:port for .onion remailers; "" = skip them
 }
 
 // Mail methods.

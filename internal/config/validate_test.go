@@ -23,6 +23,7 @@ func TestValidateOK(t *testing.T) {
 		},
 		"operator +":   func(c *Config) { c.Pinger.OperatorAddress = "remops+pinger@example.org" },
 		"yamn in PATH": func(c *Config) { c.Yamn.Binary = "yamn" },
+		"tor":          func(c *Config) { c.Mail.TorSocks = "127.0.0.1:9050" },
 		"smtp loopback": func(c *Config) {
 			c.Mail.Method, c.Mail.SMTPRelay, c.Mail.UseTLS = MethodSMTP, "::1", false
 		},
@@ -101,10 +102,21 @@ func TestValidateErrors(t *testing.T) {
 		}, "mail.usetls must be true for a relay that isn't on this machine (mail.example.org)"},
 		{func(c *Config) { c.Mail.Method, c.Mail.Username = MethodSMTP, "pinger" }, "mail.username and mail.password_file must be set together"},
 		{func(c *Config) { c.Mail.Method, c.Mail.PasswordFile = MethodSMTP, "/etc/pw" }, "must be set together"},
+		{func(c *Config) {
+			c.Mail.Method, c.Mail.SMTPRelay = MethodSMTP, "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd.onion"
+		}, "can't be a .onion host"},
+		{func(c *Config) { c.Mail.TorSocks = "9050" }, "mail.tor_socks must be host:port"},
+		{func(c *Config) { c.Mail.TorSocks = ":9050" }, "mail.tor_socks must be host:port"},
+		{func(c *Config) { c.Mail.TorSocks = "127.0.0.1:99999" }, "mail.tor_socks must be host:port"},
+		{func(c *Config) { c.Mail.TorSocks = "127.0.0.1:tor" }, "mail.tor_socks must be host:port"},
 
 		{func(c *Config) { c.Schedule.Tick = 30 * time.Second }, "schedule.tick must be at least 1m"},
 		{func(c *Config) { c.Schedule.Tick = time.Minute + time.Millisecond }, "whole number of seconds"},
 		{func(c *Config) { c.Schedule.PingInterval = 7 * time.Minute }, "schedule.ping_interval must be a multiple of schedule.tick (5m), not 7m0s"},
+		{func(c *Config) {
+			c.Schedule.Tick, c.Schedule.PingInterval, c.Schedule.KeyRequestInterval = 11*time.Minute, 11*time.Minute, 11*time.Minute
+			c.Schedule.ConfRequestInterval, c.Schedule.HelpRequestInterval, c.Schedule.AdminkeyRequestInterval = 11*time.Minute, 11*time.Minute, 11*time.Minute
+		}, "must divide a week"},
 		{func(c *Config) { c.Schedule.KeyRequestInterval = 0 }, "schedule.key_request_interval must be a multiple"},
 		{func(c *Config) { c.Schedule.ConfRequestInterval = -5 * time.Minute }, "schedule.conf_request_interval"},
 		{func(c *Config) { c.Schedule.HelpRequestInterval = time.Minute }, "schedule.help_request_interval"},

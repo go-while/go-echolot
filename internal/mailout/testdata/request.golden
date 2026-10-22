@@ -1,0 +1,21 @@
+From: pinger+key.12=1792560000=3f9a0c51d2e47b08@pinger.example.org
+To: yamn@mixmin.net
+Subject: remailer-key
+Date: Wed, 21 Oct 2026 04:40:00 +0000
+Message-ID: <20261021044000.RANDOM@pinger.example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+
+Hello,
+
+This message requests remailer configuration data. The pinging software thinks
+yamn@mixmin.net is a remailer. Either it has been told so by the
+maintainer of the pinger or it found the address in a remailer-conf or
+remailer-key reply of some other remailer.
+
+If this is _not_ a remailer, you can tell this pinger that and it will stop
+sending you those requests immediately (otherwise it will try a few more times).
+Just reply and make sure the following is the first line of your message:
+	not a remailer
+
+If you want to talk to a human please mail remops@pinger.example.org.
