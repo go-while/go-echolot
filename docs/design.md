@@ -912,16 +912,19 @@ key     = 1*( %x61-7A / DIGIT / "_" )  ; a-z, 0-9, _
 value   = 1*( %x21-7E )                ; printable ASCII, no space (":" allowed)
 ```
 
-- **Required:** `timestamp` and `expires`, decimal Unix seconds UTC (digits only, no sign), with `expires` after `timestamp`; `file`, the published file's base name.
+- **Required:** `timestamp` and `expires`, decimal Unix seconds UTC (1 to 18 digits, no sign), with `expires` after `timestamp`; `file`, the published file's base name.
 - **Optional:** `pinger`, the pinger's name for people (`pinger.sitename` with every byte outside `%x21-7E` replaced by `_`, at most 64 bytes).
 - A reader **ignores keys it doesn't know**, so more can be added later. There is no `sha256` key: the signature already covers the file (BLAKE2b-512), and a hash in the comment would add nothing.
+- The signature file is four lines, each ending in LF, as minisign writes it. Readers may accept CR LF and blank lines after the four, as minisign does.
 - go-echolot writes `timestamp file [pinger] expires` in that order (`minisign.Trusted`); `minisign.ParseTrusted` is the reference parser and `minisign.VerifyFile` the reference check (signature, grammar, `file` equals the name fetched, not expired).
 
-**Timestamps never go backwards** (yamn remembers the newest timestamp it accepted per pinger and file, and refuses older ones):
-- the next timestamp of a file is `max(now, last + 1)`, so strictly increasing per file, also within one second;
-- `last` is saved in `state.json` (`signed`) *before* the signature is published, so a crash can't reuse or lower it;
+**Timestamps never go backwards** (yamn remembers the newest timestamp it accepted per pinger key and file, and refuses older ones):
+- the next timestamp of a file is `max(now, last + 1)`, so strictly increasing per key and file, also within one second;
+- `last` is saved in `state.json` (`signed`, per key ID and file) *before* the signature is published, so a crash can't reuse or lower it;
 - at start, the timestamps of our own signatures already in `results_dir` raise `last` too, so a state dir restored from a backup doesn't go back. Only signatures whose trusted comment verifies with our key count: anyone able to write the results directory could otherwise push the timestamps far into the future;
-- after a clock step back, the timestamps continue from `last + 1` until the clock catches up, and go-echolot logs a warning. (Recovering from a clock that was far in the *future* needs a new key, §9.5 key rotation.)
+- after a clock step back, the timestamps continue from `last + 1` and go-echolot logs a warning. But a timestamp never runs more than 15 min (`MaxAhead`) ahead of the clock: beyond that, go-echolot stops signing and logs an error until the clock catches up. Otherwise, after a clock that was once ahead by D, every signature would stay valid for D plus its validity, which defeats the expiry. Meanwhile the files keep being written, their old signatures no longer match, and clients keep their last copies.
+- Recovering at once from a clock that was far ahead takes a new key (key rotation below): timestamps are kept per key, so a new key starts at the clock.
+- **For yamn:** refuse a `timestamp` more than a few minutes in the future, and keep the rollback state per pinger *key* (key ID) and file, so a rotation can reset it.
 
 **Validity and cadence:**
 - `expires`: `pubring.mix` and `type2.list` timestamp + 48 h; `mlist2.txt` (and `mlist.txt`, if listed) + 6 h.
@@ -937,7 +940,7 @@ value   = 1*( %x21-7E )                ; printable ASCII, no space (":" allowed)
 - The base64 line is shown on the index page.
 - The key and fingerprint are listed in the yamn repo (`doc/pingers.md`) through a reviewed PR. This is the trust anchor; HTTPS of the pinger is not.
 - Key rotation: the new `pinger.pub` is signed with the old key (`go-echolot sign --key old.key --valid 720h pinger.pub` → `pinger.pub.minisig`), and the doc PR is updated.
-- `go-echolot sign [--key] [--valid] FILE…` signs other files (not the daemon's own); `go-echolot verify [--pub KEY|FILE] FILE…` checks files as yamn does.
+- `go-echolot sign [--key] [--valid] FILE…` signs other files. It refuses the names of the published files (`pubring.mix`, `type2.list`, `mlist2.txt`, `mlist.txt`) wherever they are: those are the daemon's to sign, and the daemon removes the signatures of the ones it doesn't sign. `go-echolot verify [--pub KEY|FILE] FILE…` checks files as yamn does.
 
 **Test vectors** (`testdata/signing/`, shared with yamn's verifier tests): a test key, `pinger.pub`, `pubring.mix` and `mlist2.txt`, each signed by go-echolot and by the reference minisign 0.12 tool with the same key and trusted comment. CI installs Debian's `minisign`, verifies go-echolot's signatures with `minisign -Vm`, and runs round trips both ways with new keys (`MINISIGN_BIN`), so the format is proven against the reference tool, not only our own code.
 

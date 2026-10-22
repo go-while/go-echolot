@@ -93,11 +93,13 @@ func cmdSign(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	pub := k.Public()
-	results, _ := filepath.Abs(cfg.Paths.ResultsDir)
 	for _, f := range files {
 		name := filepath.Base(f)
-		if abs, _ := filepath.Abs(f); cfg.Signing.Enabled && filepath.Dir(abs) == results && slices.Contains(cfg.Signing.Files, name) {
-			return fmt.Errorf("%s: the daemon signs it (signing.files)", f)
+		// The published files are the daemon's to sign, from the bytes it
+		// wrote and with its timestamps; it also removes the signatures
+		// of those it doesn't sign.
+		if slices.Contains(app.OutputFiles, name) {
+			return fmt.Errorf("%s: the daemon signs the published files (signing.files), not this command", f)
 		}
 		data, err := os.ReadFile(f)
 		if err != nil {

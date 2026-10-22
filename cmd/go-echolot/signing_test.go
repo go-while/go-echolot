@@ -68,8 +68,11 @@ func TestSigningVerbs(t *testing.T) {
 	www := filepath.Join(filepath.Dir(stateDir), "www")
 	os.MkdirAll(www, 0o755)
 	os.WriteFile(filepath.Join(www, "pubring.mix"), nil, 0o644)
-	if code, _, errOut := runCmd("sign", "--config", cfg, filepath.Join(www, "pubring.mix")); code != 1 || !strings.Contains(errOut, "the daemon signs it") {
-		t.Errorf("sign pubring.mix: %d %q", code, errOut)
+	for _, f := range []string{filepath.Join(www, "pubring.mix"), filepath.Join(t.TempDir(), "mlist.txt")} {
+		os.WriteFile(f, nil, 0o644)
+		if code, _, errOut := runCmd("sign", "--config", cfg, f); code != 1 || !strings.Contains(errOut, "the daemon signs the published files") {
+			t.Errorf("sign %s: %d %q", f, code, errOut)
+		}
 	}
 	// buildkeys signs and publishes pinger.pub; verify finds it there.
 	if code, _, errOut := runCmd("buildkeys", "--config", cfg); code != 0 {

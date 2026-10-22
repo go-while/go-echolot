@@ -126,7 +126,7 @@ func TestSignatureTimestampsNeverGoBack(t *testing.T) {
 	if got := ts(); got != t0+1 {
 		t.Errorf("same second: %d, want %d", got, t0+1)
 	}
-	h.clock.Jump(-time.Hour) // the clock steps back
+	h.clock.Jump(-5 * time.Minute) // the clock steps back a little
 	h.d.BuildStats(h.clock.Now())
 	if got := ts(); got != t0+2 {
 		t.Errorf("after the clock went back: %d, want %d", got, t0+2)
@@ -134,6 +134,18 @@ func TestSignatureTimestampsNeverGoBack(t *testing.T) {
 	if !strings.Contains(h.log.String(), "ahead of the clock") {
 		t.Error("no warning about the clock")
 	}
+	// Further back than MaxAhead: nothing is signed (the old signature no
+	// longer matches, so clients keep their copy) until the clock is back.
+	h.clock.Jump(-time.Hour)
+	h.d.BuildStats(h.clock.Now())
+	if !strings.Contains(h.log.String(), "not signed: the next timestamp is") {
+		t.Errorf("no error for a clock far behind:\n%s", h.log)
+	}
+	sig, _ := os.ReadFile(filepath.Join(h.cfg.Paths.ResultsDir, "mlist2.txt.minisig"))
+	if got, _ := SignatureTime(pub, sig); got != t0+2 {
+		t.Errorf("signed with the clock far behind: %d", got)
+	}
+	h.clock.Jump(time.Hour)
 	h.restart()
 	h.d.BuildStats(h.clock.Now())
 	if got := ts(); got != t0+3 {
@@ -200,5 +212,21 @@ func TestPingerName(t *testing.T) {
 		if got := PingerName(in); got != want || !minisign.ValidValue(got) {
 			t.Errorf("%q: %q", in, got)
 		}
+	}
+}
+
+// TestNewKeyStartsAfresh: timestamps are kept per key, so a new key
+// recovers from a clock that was once far ahead (design §9.5).
+func TestNewKeyStartsAfresh(t *testing.T) {
+	h := newHarness(t, false)
+	h.withSigning()
+	h.clock.Jump(365 * 24 * time.Hour) // the clock is a year ahead
+	h.d.BuildStats(h.clock.Now())
+	h.clock.Jump(-365 * 24 * time.Hour) // and fixed
+	os.Remove(h.cfg.Signing.KeyFile)
+	pub := h.withSigning() // a new key
+	h.d.BuildStats(h.clock.Now())
+	if got := h.verified(pub, "mlist2.txt").Timestamp; !got.Equal(h.clock.Now()) {
+		t.Errorf("new key signed at %s, want the clock's %s", got, h.clock.Now())
 	}
 }

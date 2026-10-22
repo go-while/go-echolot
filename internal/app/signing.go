@@ -19,6 +19,9 @@ import (
 // Signed outputs (design §9.5, phase 4): the files of signing.files in
 // the results directory get a minisign signature, <file>.minisig.
 
+// OutputFiles are the published files the daemon writes and may sign.
+var OutputFiles = []string{"pubring.mix", "type2.list", "mlist2.txt", "mlist.txt"}
+
 // SignValidity is how long a signature of each signable file is valid:
 // its trusted comment's expires is timestamp plus this.  The keyrings are
 // re-signed at every check (hourly), the stats at every build.
@@ -28,6 +31,12 @@ var SignValidity = map[string]time.Duration{
 	"mlist2.txt":  6 * time.Hour,
 	"mlist.txt":   6 * time.Hour,
 }
+
+// MaxAhead is how far a signature's timestamp may be ahead of the clock.
+// Timestamps never go back, so after the clock steps back they run ahead
+// of it; beyond this, signing stops (and logs) until the clock catches
+// up, rather than publish signatures valid for longer than SignValidity.
+const MaxAhead = 15 * time.Minute
 
 // maxPingerName bounds the pinger name in trusted comments.
 const maxPingerName = 64
@@ -123,26 +132,34 @@ func newSigner(cfg *config.Config, st *store.Store, log *slog.Logger) (*signer, 
 	return s, nil
 }
 
+// SignedKey is the key of State.Signed for the file name signed with the
+// key id: a new key starts its timestamps afresh (design §9.5).
+func SignedKey(id minisign.KeyID, name string) string { return id.String() + "/" + name }
+
 // nextTimestamp returns the timestamp of the next signature of name at
 // now and saves it: now, but always after every timestamp name had
-// before (design §9.5).  It's saved before the signature is published,
-// so a crash can't make it go backwards.
+// before with this key (design §9.5).  It's saved before the signature
+// is published, so a crash can't make it go backwards.  It refuses a
+// timestamp more than MaxAhead ahead of now.
 func (s *signer) nextTimestamp(name string, now time.Time) (int64, error) {
+	key := SignedKey(s.pub.ID, name)
 	var ts int64
 	err := s.st.Update(func(st *store.State) error {
-		ts = max(now.Unix(), st.Signed[name]+1, s.floor[name]+1)
+		ts = max(now.Unix(), st.Signed[key]+1, s.floor[name]+1)
+		if ahead := time.Duration(ts-now.Unix()) * time.Second; ahead > MaxAhead {
+			return fmt.Errorf("not signed: the next timestamp is %s ahead of the clock (did it go back?); "+
+				"signing resumes when the clock catches up, or with a new key", ahead)
+		}
 		if st.Signed == nil {
 			st.Signed = map[string]int64{}
 		}
-		st.Signed[name] = ts
+		st.Signed[key] = ts
 		return nil
 	})
 	if err != nil {
 		return 0, err
 	}
 	if ahead := time.Duration(ts-now.Unix()) * time.Second; ahead > time.Minute {
-		// The clock went back: the timestamps stay ahead of it until it
-		// catches up.
 		s.log.Warn("signature timestamp ahead of the clock (did the clock go back?)", "file", name, "ahead", ahead)
 	}
 	return ts, nil

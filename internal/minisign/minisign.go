@@ -234,12 +234,13 @@ type Signature struct {
 }
 
 // ParseSignature reads a signature file: four lines, as minisign writes
-// them.  Lines may end in CR LF.
+// them.  Lines may end in CR LF; blank lines after the four are ignored,
+// as minisign does.
 func ParseSignature(data []byte) (*Signature, error) {
 	if len(data) > maxSigFile {
 		return nil, errors.New("minisign: signature file too long")
 	}
-	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	lines := strings.Split(strings.TrimRight(string(data), "\r\n"), "\n")
 	if len(lines) != 4 {
 		return nil, errors.New("minisign: a signature file has four lines")
 	}

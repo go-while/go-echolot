@@ -139,6 +139,10 @@ func TestSignVerify(t *testing.T) {
 	if _, err := Verify(p, data, crlf); err != nil {
 		t.Errorf("CR LF: %v", err)
 	}
+	// Blank lines at the end are ignored, as by minisign.
+	if _, err := Verify(p, data, append(bytes.Clone(sig), "\n\r\n"...)); err != nil {
+		t.Errorf("trailing blank lines: %v", err)
+	}
 	for _, c := range []string{"a\nb", "a\rb", strings.Repeat("x", MaxComment+1)} {
 		if _, err := Sign(k, data, c, ""); err == nil {
 			t.Errorf("comment %.20q accepted", c)
@@ -152,16 +156,15 @@ func TestParseSignatureErrors(t *testing.T) {
 	lines := strings.Split(strings.TrimSuffix(string(sig), "\n"), "\n")
 	join := func(l ...string) []byte { return []byte(strings.Join(l, "\n") + "\n") }
 	for name, in := range map[string][]byte{
-		"three lines":    join(lines[:3]...),
-		"five lines":     join(append(lines, "x")...),
-		"no untrusted":   join("x", lines[1], lines[2], lines[3]),
-		"no trusted":     join(lines[0], lines[1], "x", lines[3]),
-		"bad sig":        join(lines[0], "AAAA", lines[2], lines[3]),
-		"bad global":     join(lines[0], lines[1], lines[2], "AAAA"),
-		"unknown alg":    join(lines[0], encodeB64(append([]byte("XX"), make([]byte, 72)...)), lines[2], lines[3]),
-		"too long":       bytes.Repeat([]byte("x"), maxSigFile+1),
-		"empty":          nil,
-		"trailing lines": append(join(lines...), '\n'),
+		"three lines":  join(lines[:3]...),
+		"five lines":   join(append(lines, "x")...),
+		"no untrusted": join("x", lines[1], lines[2], lines[3]),
+		"no trusted":   join(lines[0], lines[1], "x", lines[3]),
+		"bad sig":      join(lines[0], "AAAA", lines[2], lines[3]),
+		"bad global":   join(lines[0], lines[1], lines[2], "AAAA"),
+		"unknown alg":  join(lines[0], encodeB64(append([]byte("XX"), make([]byte, 72)...)), lines[2], lines[3]),
+		"too long":     bytes.Repeat([]byte("x"), maxSigFile+1),
+		"empty":        nil,
 	} {
 		if _, err := ParseSignature(in); err == nil {
 			t.Errorf("%s: accepted", name)

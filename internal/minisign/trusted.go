@@ -16,8 +16,8 @@ import (
 //	key     = 1*( %x61-7A / DIGIT / "_" ) ; a-z, 0-9, _
 //	value   = 1*( %x21-7E )              ; printable ASCII, no space
 //
-// Required keys: timestamp and expires, in Unix seconds UTC (decimal
-// digits), and file, the published file's base name.  Optional: pinger,
+// Required keys: timestamp and expires, in Unix seconds UTC (1 to 18
+// decimal digits), and file, the published file's base name.  Optional: pinger,
 // the pinger's name, for people.  A reader ignores keys it doesn't know.
 type Trusted struct {
 	Timestamp time.Time // when it was signed; never goes backwards per file
