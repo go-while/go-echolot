@@ -2,7 +2,7 @@
 
 A pinger for the [yamn](https://github.com/crooks/yamn) remailer network, in Go. It is meant to replace the patched Perl [Echolot](https://github.com/crooks/echolot) that today's yamn pingers run.
 
-**Status: phases 2 (pings → mlist2) and 3 (chain pings, HTML) are in place, and phase 4's signed outputs** (the plan in [docs/design.md §12](docs/design.md#12-phased-plan-sizes-first-prs)). go-echolot requests keys and confs from the remailers you add, pings every key through the `yamn` binary, publishes a key only after a ping to it came back (proof of possession), and writes `pubring.mix`, `type2.list`, `mlist2.txt` and `mlist.txt`. `go-echolot import-echolot` takes over an Echolot pinger's remailers, keys, ping history and thesaurus (§5.5). With `[signing] enabled`, the published files carry minisign signatures (`go-echolot keygen`, §9.5). Still to come: phase 4's peer checks and health notifications (§10.2), and phase 2's 14-day side-by-side run against mixmin's pinger (§12.2) before its files are announced.
+**Status: phases 2 (pings → mlist2), 3 (chain pings, HTML) and 4 (signed outputs, health and peer checks) are in place** (the plan in [docs/design.md §12](docs/design.md#12-phased-plan-sizes-first-prs)). go-echolot requests keys and confs from the remailers you add, pings every key through the `yamn` binary, publishes a key only after a ping to it came back (proof of possession), and writes `pubring.mix`, `type2.list`, `mlist2.txt` and `mlist.txt`. `go-echolot import-echolot` takes over an Echolot pinger's remailers, keys, ping history and thesaurus (§5.5). With `[signing] enabled`, the published files carry minisign signatures (`go-echolot keygen`, §9.5). It watches itself and other pingers (§10.2): `status.json`/`status.txt` every tick, `go-echolot check` for Nagios or cron, and mail to `health.notify` when a check changes. Still to come: phase 2's 14-day side-by-side run against mixmin's pinger (§12.2) before its files are announced.
 
 A pinger:
 - collects each remailer's key and capabilities by mail (`remailer-key`, `remailer-conf`);
@@ -29,8 +29,8 @@ A pinger:
 
 ## Repository contents
 
-- `cmd/go-echolot/`: the command: `run`, `deliver`, `add`/`delete`/`enable`/`disable`/`set`, `approve`/`reject`, `getkeyconf`, `buildkeys`, `sendpings`, `sendchainpings`, `buildstats`, `status`, `keys`, `import-echolot`, `keygen`/`sign`/`verify`, `dumpconf`, `version` (`go-echolot help`). Commands that change the state go to the running daemon through a spool and SIGHUP.
-- `internal/app/`: the daemon (jobs, reply handling), the operator commands, the spool and the thesaurus of raw replies.
+- `cmd/go-echolot/`: the command: `run`, `deliver`, `add`/`delete`/`enable`/`disable`/`set`, `approve`/`reject`, `getkeyconf`, `buildkeys`, `sendpings`, `sendchainpings`, `buildstats`, `status`, `keys`, `import-echolot`, `keygen`/`sign`/`verify`, `check`, `dumpconf`, `version` (`go-echolot help`). Commands that change the state go to the running daemon through a spool and SIGHUP.
+- `internal/app/`: the daemon (jobs, reply handling, health and peer checks), the operator commands, the spool and the thesaurus of raw replies.
 - `internal/mailin/`, `internal/mailout/`: Maildir intake and `deliver`; sendmail, SMTP (verified TLS, per-command timeouts) and Tor for .onion remailers.
 - `internal/sched/`, `internal/sdnotify/`: the slot scheduler and job loop; systemd notification and watchdog.
 - `internal/config/`: the INI-style config parser, defaults and validation.
@@ -42,6 +42,7 @@ A pinger:
 - `internal/stats/`: Echolot's `calculate()`, ported exactly and tested against Echolot's own output (`testdata/golden/`, `make golden`).
 - `internal/chain/`: chain pings: which pairs, when, and which chains are broken (with golden tests from Echolot).
 - `internal/pinger/`: the ping body (NaCl secretbox, MAC), the encoder that runs `yamn -m --stdout` with its own config and a one-key keyring per ping, and the receive side.
+- `internal/health/`: the health checks and their thresholds, `status.json`/`status.txt`, and when to mail the operator.
 - `internal/minisign/`: minisign keys and signatures (compatible with the reference tool) and the trusted comment that yamn checks.
 - `internal/blake2s/`: yamn's keyid (unkeyed BLAKE2s-128).
 - `internal/fileutil/`: atomic file writes. `internal/civil/`: calendar dates for key validity.

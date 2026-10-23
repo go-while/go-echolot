@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -136,10 +137,25 @@ type Health struct {
 	Notify string `ini:"notify"` // operator address for health mails; "" = none
 }
 
-// Peer is another pinger whose mlist2.txt is checked for staleness.
+// Peer is another pinger whose mlist2.txt is checked for staleness, and
+// whose pubring.mix is compared with ours (design §10.2).
 type Peer struct {
-	Name   string `ini:"-"` // from [peer <name>]
-	Mlist2 string `ini:"mlist2"`
+	Name    string `ini:"-"` // from [peer <name>]
+	Mlist2  string `ini:"mlist2"`
+	Pubring string `ini:"pubring"` // "" = pubring.mix next to mlist2 (PubringURL)
+}
+
+// PubringURL is the peer's pubring.mix: Pubring, or pubring.mix in the
+// directory of Mlist2.
+func (p Peer) PubringURL() string {
+	if p.Pubring != "" {
+		return p.Pubring
+	}
+	u, err := url.Parse(p.Mlist2)
+	if err != nil {
+		return ""
+	}
+	return u.ResolveReference(&url.URL{Path: "pubring.mix"}).String()
 }
 
 // Compat holds the switches back to Echolot's behaviour (design §8.4).

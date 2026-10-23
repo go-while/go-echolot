@@ -104,6 +104,7 @@ legacy_md5_tokens_until = 2026-10-24T14:00:00+02:00
 mlist2 = https://www.mixmin.net/yamn/mlist2.txt
 [peer victor]
 mlist2 = https://echolot.virebent.art/mlist2.txt
+pubring = https://echolot.virebent.art/keys/pubring.mix
 `)
 	if c.Schedule.Tick != time.Minute || c.Schedule.PingInterval != 90*time.Minute {
 		t.Errorf("schedule: %+v", c.Schedule)
@@ -122,11 +123,17 @@ mlist2 = https://echolot.virebent.art/mlist2.txt
 		t.Errorf("compat.legacy_md5_tokens_until: %v, want %v", c.Compat.LegacyMD5TokensUntil, want)
 	}
 	want := []Peer{
-		{"mixmin", "https://www.mixmin.net/yamn/mlist2.txt"},
-		{"victor", "https://echolot.virebent.art/mlist2.txt"},
+		{Name: "mixmin", Mlist2: "https://www.mixmin.net/yamn/mlist2.txt"},
+		{Name: "victor", Mlist2: "https://echolot.virebent.art/mlist2.txt", Pubring: "https://echolot.virebent.art/keys/pubring.mix"},
 	}
 	if !reflect.DeepEqual(c.Peers, want) {
 		t.Errorf("peers: %+v", c.Peers)
+	}
+	if got := c.Peers[0].PubringURL(); got != "https://www.mixmin.net/yamn/pubring.mix" {
+		t.Errorf("mixmin's pubring: %s", got)
+	}
+	if got := c.Peers[1].PubringURL(); got != "https://echolot.virebent.art/keys/pubring.mix" {
+		t.Errorf("victor's pubring: %s", got)
 	}
 }
 

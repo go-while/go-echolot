@@ -118,6 +118,11 @@ func (c *Config) Validate() error {
 			check(err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && u.User == nil,
 				"[peer %s]: mlist2 must be an http or https URL, not %q", peer.Name, peer.Mlist2)
 		}
+		if peer.Pubring != "" {
+			u, err := url.Parse(peer.Pubring)
+			check(err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && u.User == nil,
+				"[peer %s]: pubring must be an http or https URL, not %q", peer.Name, peer.Pubring)
+		}
 	}
 
 	check(c.Compat.LatencyFrom == LatencyFromDelivery || c.Compat.LatencyFrom == LatencyFromProcessing,

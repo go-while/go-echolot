@@ -36,7 +36,7 @@ func TestValidateOK(t *testing.T) {
 		"results next to state": func(c *Config) { c.Paths.ResultsDir = "/var/lib/go-echolot-www" },
 		"signing":               func(c *Config) { c.Signing.Enabled = true; c.Signing.Files = []string{"mlist.txt"} },
 		"peer": func(c *Config) {
-			c.Peers = []Peer{{"mixmin", "https://www.mixmin.net/yamn/mlist2.txt"}, {"victor-2.b_c", "http://x.example/m"}}
+			c.Peers = []Peer{{Name: "mixmin", Mlist2: "https://www.mixmin.net/yamn/mlist2.txt"}, {Name: "victor-2.b_c", Mlist2: "http://x.example/m"}}
 		},
 		"3 days": func(c *Config) { c.Stats.Days, c.Stats.Weights = 3, []float64{1, 0, 0} },
 		"slots":  func(c *Config) { c.Schedule.Tick, c.Schedule.PingInterval = 90*time.Second, 3*time.Minute },
@@ -153,14 +153,17 @@ func TestValidateErrors(t *testing.T) {
 
 		{func(c *Config) { c.Health.Notify = "remops" }, "health.notify must be a plain address"},
 
-		{func(c *Config) { c.Peers = []Peer{{"Mixmin", "https://x.example/m"}} }, "[peer Mixmin]: the name may use"},
-		{func(c *Config) { c.Peers = []Peer{{strings.Repeat("a", 33), "https://x.example/m"}} }, "up to 32 characters"},
-		{func(c *Config) { c.Peers = []Peer{{"a", "https://x.example/m"}, {"a", "https://y.example/m"}} }, "[peer a] twice"},
-		{func(c *Config) { c.Peers = []Peer{{"a", ""}} }, "[peer a]: mlist2 is required"},
-		{func(c *Config) { c.Peers = []Peer{{"a", "ftp://x.example/m"}} }, "[peer a]: mlist2 must be an http or https URL"},
-		{func(c *Config) { c.Peers = []Peer{{"a", "https:///m"}} }, "must be an http or https URL"},
-		{func(c *Config) { c.Peers = []Peer{{"a", "https://u:p@x.example/m"}} }, "must be an http or https URL"},
-		{func(c *Config) { c.Peers = []Peer{{"a", "x.example/m"}} }, "must be an http or https URL"},
+		{func(c *Config) { c.Peers = []Peer{{Name: "Mixmin", Mlist2: "https://x.example/m"}} }, "[peer Mixmin]: the name may use"},
+		{func(c *Config) { c.Peers = []Peer{{Name: strings.Repeat("a", 33), Mlist2: "https://x.example/m"}} }, "up to 32 characters"},
+		{func(c *Config) {
+			c.Peers = []Peer{{Name: "a", Mlist2: "https://x.example/m"}, {Name: "a", Mlist2: "https://y.example/m"}}
+		}, "[peer a] twice"},
+		{func(c *Config) { c.Peers = []Peer{{Name: "a", Mlist2: ""}} }, "[peer a]: mlist2 is required"},
+		{func(c *Config) { c.Peers = []Peer{{Name: "a", Mlist2: "ftp://x.example/m"}} }, "[peer a]: mlist2 must be an http or https URL"},
+		{func(c *Config) { c.Peers = []Peer{{Name: "a", Mlist2: "https:///m"}} }, "must be an http or https URL"},
+		{func(c *Config) { c.Peers = []Peer{{Name: "a", Mlist2: "https://u:p@x.example/m"}} }, "must be an http or https URL"},
+		{func(c *Config) { c.Peers = []Peer{{Name: "a", Mlist2: "x.example/m"}} }, "must be an http or https URL"},
+		{func(c *Config) { c.Peers = []Peer{{Name: "a", Mlist2: "https://x.example/m", Pubring: "file:///p"}} }, "[peer a]: pubring must be an http or https URL"},
 
 		{func(c *Config) { c.Compat.LatencyFrom = "" }, "compat.latency_from must be delivery or processing"},
 		{func(c *Config) { c.Log.Level = "INFO" }, "log.level must be debug, info, warn or error"},

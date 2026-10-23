@@ -428,6 +428,25 @@ func (s *Store) Pings(addr string, since time.Time) (out, done []Ping) {
 	return out, done
 }
 
+// ReplyStatus returns the newest reception time of a ping that came
+// back (zero: none), and the send time of the oldest ping still out that
+// was sent after it (zero: none), for the health check (design §10.2).
+func (s *Store) ReplyStatus() (lastReply, waiting time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.pings.byID {
+		if p.Status == PingDone && p.Received.After(lastReply) {
+			lastReply = p.Received
+		}
+	}
+	for _, p := range s.pings.byID {
+		if p.Status == PingOut && p.Sent.After(lastReply) && (waiting.IsZero() || p.Sent.Before(waiting)) {
+			waiting = p.Sent
+		}
+	}
+	return lastReply, waiting
+}
+
 // Ping returns ping id.
 func (s *Store) Ping(id uint64) (Ping, bool) {
 	s.mu.Lock()
