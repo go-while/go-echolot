@@ -24,7 +24,7 @@ A pinger:
 - **Trust (yamn issue Y-03):**
   - **Proof of possession:** a key is published only after a ping encrypted to it has come back.
   - **Quarantine:** an unexpected key, name or address change waits 24 h or for operator approval.
-  - **Signatures:** `pubring.mix`, `type2.list` and `mlist2.txt` carry minisign signatures (`<file>.minisig`, Ed25519) whose trusted comment names the file, the time and an expiry; timestamps never go backwards, so clients can refuse a rollback. `minisign -Vm pubring.mix -P <key>` checks them.
+  - **Signatures:** `pubring.mix`, `type2.list` and `mlist2.txt` carry minisign signatures (`<file>.minisig`, Ed25519) whose trusted comment names the file, the time and an expiry; timestamps never go backwards, so clients can refuse a rollback. `minisign -Vm pubring.mix -P <key>` checks them. yamn (PR #72) checks them too; it fetches `<url>.minisig` and compares the file name in the signature with the URL's, so serve the files under their real names (no rewriting `/pubring` to `pubring.mix`).
   - **yamn's own checks:** yamn clients already cross-check several pingers (`urls.pingers`, `key_quorum`), and yamn remailers warn when a pinger publishes a key that isn't theirs.
 
 ## Repository contents

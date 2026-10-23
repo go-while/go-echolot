@@ -925,6 +925,7 @@ value   = 1*( %x21-7E )                ; printable ASCII, no space (":" allowed)
 - after a clock step back, the timestamps continue from `last + 1` and go-echolot logs a warning. But a timestamp never runs more than 15 min (`MaxAhead`) ahead of the clock: beyond that, go-echolot stops signing and logs an error until the clock catches up. Otherwise, after a clock that was once ahead by D, every signature would stay valid for D plus its validity, which defeats the expiry. Meanwhile the files keep being written, their old signatures no longer match, and clients keep their last copies.
 - Recovering at once from a clock that was far ahead takes a new key (key rotation below): timestamps are kept per key, so a new key starts at the clock.
 - **For yamn:** refuse a `timestamp` more than a few minutes in the future, and keep the rollback state per pinger *key* (key ID) and file, so a rotation can reset it.
+- **What yamn does** (PR #72): it fetches `<url>.minisig` for each signed URL and compares `file:` with the last path element of the URL. The web server must therefore serve the files under their real names (§10.1).
 
 **Validity and cadence:**
 - `expires`: `pubring.mix` and `type2.list` timestamp + 48 h; `mlist2.txt` (and `mlist.txt`, if listed) + 6 h.
@@ -1021,6 +1022,8 @@ urls:
 
 **Status (2026-10-22):** steps 1–7 are done in yamn (PR #30, `de59490`, plus #52 for the stats quorum); `urls.pingers` entries have `name`, `pubring`, `mlist2`. Not done: the per-pinger `key` and `require_signatures`, and `max_stats_age_hours`/`max_pubring_age_hours` (yamn uses `stats.stale_hours`). Those come with signed outputs (§9.5), as a yamn PR in phase 4.
 
+**Status (2026-10-23):** yamn PR #72 checks go-echolot's signatures per §9.5. It is tested against `testdata/signing` (both signatures of each file) and end to end with go-echolot `c5214c7` (`keygen` + `sign`, then `yamn --refresh`).
+
 ### 9.7 What yamn already does (2026-10-22)
 
 These are merged in go-while/yamn and change what go-echolot has to do:
@@ -1042,6 +1045,7 @@ These are merged in go-while/yamn and change what go-echolot has to do:
   - (c) A dedicated virtual Maildir for a subdomain (`pinger.example.org`). This is cleanest for SPF, DKIM and DMARC.
 - **Mail out:** `mail.method: sendmail` (default; the MTA queues and retries), or `smtp`. The `smtp` method reuses yamn's TLS policy: verify the relay, STARTTLS required for a non-loopback relay, AUTH only to the relay; cf. `Y:mail.go:446-604`. The envelope sender is a VERP bounce token (§6.2).
 - **Publishing:** `results_dir` (e.g. `/var/www/pinger/yamn`) is owned by `pinger` and served read-only by the web server. Only the results directory is ever exposed.
+  - **Serve the files under their real names, side by side.** yamn (PR #72) fetches a file's signature from `<url>.minisig` and checks that the trusted comment's `file:` equals the last path element of the URL it downloaded. So a URL that rewrites `/pubring` to `pubring.mix`, or that redirects to another name, fails verification. Give clients URLs like `https://pinger.example.org/yamn/pubring.mix`, with `pubring.mix.minisig` next to it.
 
 systemd unit:
 
