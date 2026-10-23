@@ -56,7 +56,7 @@ func TestHealthStatusFiles(t *testing.T) {
 	ctx := context.Background()
 	h.d.ScanMail(ctx)
 	h.d.BuildStats(h.clock.Now())
-	r := h.d.Health(h.clock.Now())
+	r := h.d.Health(ctx, h.clock.Now())
 	got := map[string]health.Check{}
 	for _, c := range r.Checks {
 		got[c.Name] = c
@@ -66,7 +66,7 @@ func TestHealthStatusFiles(t *testing.T) {
 			t.Errorf("no check %s", name)
 		}
 	}
-	if _, ok := got["peer_keys"]; ok {
+	if _, ok := got["key_agreement"]; ok {
 		t.Error("peer_keys without peers")
 	}
 	if c := got["keys"]; c.State != health.OK || c.Detail != "1 keys published" {
@@ -97,7 +97,10 @@ func TestHealthStatusFiles(t *testing.T) {
 	h.wantCheck("yamn_selftest", health.OK, "passed")
 	h.d.encoder = plainEncoder{fail: errors.New("yamn is gone")}
 	h.d.SelfTest(ctx, h.clock.Now())
-	h.wantCheck("yamn_selftest", health.Crit, "yamn is gone")
+	h.wantCheck("yamn_selftest", health.Crit, "no pings can be sent")
+	if !strings.Contains(h.log.String(), "yamn is gone") {
+		t.Error("the self-test error isn't logged")
+	}
 }
 
 func TestHealthKeys(t *testing.T) {
@@ -150,10 +153,10 @@ func TestHealthSendFailures(t *testing.T) {
 	h.mailer.fail = fmt.Errorf("421 try later: %w", mailout.ErrTemporary)
 	h.command("sendpings")
 	h.wantCheck("send_failures", health.Warn, "2 of 4 sends failed")
-	// The rate fuse sends nothing: it doesn't count.
+	// The rate fuse sends nothing: it isn't a failure, but shows.
 	h.mailer.fail = &mailout.Error{Op: "rate fuse", Err: mailout.ErrRateLimited}
 	h.command("sendpings")
-	h.wantCheck("send_failures", health.Warn, "2 of 4 sends failed")
+	h.wantCheck("send_failures", health.Warn, "2 of 4 sends failed in the last hour; mail.max_per_hour held back 1 mails")
 	h.clock.Advance(time.Hour + time.Second)
 	h.mailer.fail = errors.New("sendmail: exit status 75")
 	h.command("sendpings")
@@ -190,7 +193,7 @@ func TestHealthNotify(t *testing.T) {
 		}
 		return ms
 	}
-	h.d.Health(h.clock.Now())
+	h.d.Health(ctx, h.clock.Now())
 	if ms := mailsTo(); len(ms) != 0 {
 		t.Fatalf("mail while all is well:\n%s", ms[0].Data)
 	}
@@ -198,18 +201,18 @@ func TestHealthNotify(t *testing.T) {
 	// The scan stops: one mail, not one per tick.
 	h.clock.Advance(10 * time.Minute)
 	h.d.BuildStats(h.clock.Now())
-	h.d.Health(h.clock.Now())
+	h.d.Health(ctx, h.clock.Now())
 	ms := mailsTo()
 	if len(ms) != 1 || !strings.Contains(string(ms[0].Data), "Subject: go-echolot health: WARN (Test pinger)\n") ||
 		!strings.Contains(string(ms[0].Data), "Changed:\n\nwarn  mailbox_scan") || ms[0].EnvelopeFrom != "pinger@pinger.example.org" {
 		t.Fatalf("mails: %d\n%s", len(ms), ms)
 	}
-	if sent, _ := h.d.health.sends.Counts(h.clock.Now()); sent != 0 {
+	if sent, _, _ := h.d.health.sends.Counts(h.clock.Now()); sent != 0 {
 		t.Errorf("the health mail counts as a send: %d", sent)
 	}
 	h.clock.Advance(5 * time.Minute)
 	h.d.BuildStats(h.clock.Now())
-	h.d.Health(h.clock.Now())
+	h.d.Health(ctx, h.clock.Now())
 	if ms := mailsTo(); len(ms) != 0 {
 		t.Errorf("mailed again:\n%s", ms[0].Data)
 	}
@@ -219,21 +222,29 @@ func TestHealthNotify(t *testing.T) {
 	h.restart()
 	h.d.health.scanned(h.clock.Now().Add(-31 * time.Minute))
 	h.d.BuildStats(h.clock.Now())
-	h.d.Health(h.clock.Now())
+	h.d.Health(ctx, h.clock.Now())
 	if ms := mailsTo(); len(ms) != 0 {
 		t.Errorf("mailed within 6 h:\n%s", ms[0].Data)
 	}
-	// 6 hours after the first mail: crit is mailed.  The first try fails
-	// and the next tick tries again.
+	// 6 hours after the first mail: crit is mailed.  The first try fails;
+	// it's tried again 30 minutes later, not at every tick.
 	h.clock.Advance(6 * time.Hour)
 	h.d.BuildStats(h.clock.Now())
 	h.mailer.fail = errors.New("sendmail: exit status 75")
-	h.d.Health(h.clock.Now())
+	h.d.Health(ctx, h.clock.Now())
 	if !strings.Contains(h.log.String(), "health mail not sent") {
 		t.Error("the failed mail isn't logged")
 	}
 	h.mailer.fail = nil
-	h.d.Health(h.clock.Now())
+	h.clock.Advance(5 * time.Minute)
+	h.d.BuildStats(h.clock.Now())
+	h.d.Health(ctx, h.clock.Now())
+	if ms := mailsTo(); len(ms) != 0 {
+		t.Errorf("retried at once:\n%s", ms[0].Data)
+	}
+	h.clock.Advance(25 * time.Minute)
+	h.d.BuildStats(h.clock.Now())
+	h.d.Health(ctx, h.clock.Now())
 	if ms := mailsTo(); len(ms) != 1 || !strings.Contains(string(ms[0].Data), "crit  mailbox_scan") {
 		t.Errorf("crit not mailed: %d %s", len(ms), ms)
 	}
@@ -241,14 +252,14 @@ func TestHealthNotify(t *testing.T) {
 	h.clock.Advance(time.Hour)
 	h.d.ScanMail(ctx)
 	h.d.BuildStats(h.clock.Now())
-	h.d.Health(h.clock.Now())
+	h.d.Health(ctx, h.clock.Now())
 	if ms := mailsTo(); len(ms) != 0 {
 		t.Errorf("ok mailed within 6 h:\n%s", ms[0].Data)
 	}
 	h.clock.Advance(5 * time.Hour)
 	h.d.ScanMail(ctx)
 	h.d.BuildStats(h.clock.Now())
-	h.d.Health(h.clock.Now())
+	h.d.Health(ctx, h.clock.Now())
 	if ms := mailsTo(); len(ms) != 1 || !strings.Contains(string(ms[0].Data), "Subject: go-echolot health: OK") {
 		t.Errorf("ok not mailed: %d %s", len(ms), ms)
 	}
@@ -299,7 +310,7 @@ func TestHealthPeers(t *testing.T) {
 	h.wantCheck("peer_fresh", health.OK, "generated 1h ago")
 	h.wantCheck("peer_stale", health.Warn, "generated 7h ago")
 	h.wantCheck("peer_down", health.Warn, "never fetched: "+srv.URL+"/down/mlist2.txt: 404 Not Found")
-	h.wantCheck("peer_keys", health.OK, "fresh: yamn@virebent.art ours "+real+", theirs "+forged)
+	h.wantCheck("key_agreement", health.OK, "fresh: yamn@virebent.art ours "+real+", theirs "+forged)
 	if !strings.Contains(h.log.String(), "peer key disagreement") {
 		t.Error("the disagreement isn't logged")
 	}
@@ -310,7 +321,7 @@ func TestHealthPeers(t *testing.T) {
 	h.restart()
 	h.d.CheckPeers(context.Background(), h.clock.Now())
 	h.wantCheck("peer_fresh", health.Crit, "generated 26h ago; the last fetch failed: ")
-	h.wantCheck("peer_keys", health.OK, "fresh: yamn@virebent.art") // kept: the pubring still came
+	h.wantCheck("key_agreement", health.OK, "fresh: yamn@virebent.art") // kept: the pubring still came
 	// A peer taken out of the config is forgotten.
 	h.cfg.Peers = h.cfg.Peers[:1]
 	h.restart()
@@ -320,4 +331,76 @@ func TestHealthPeers(t *testing.T) {
 			t.Errorf("peers kept: %v", st.Health.Peers)
 		}
 	})
+}
+
+// TestHealthNotifyReadOnlyState: state.json can't be written (a full
+// disk, say): the mail goes out once, not at every tick.
+func TestHealthNotifyReadOnlyState(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into read-only directories")
+	}
+	h, _, _ := healthHarness(t)
+	h.cfg.Health.Notify = "ops@example.org"
+	h.restart()
+	ctx := context.Background()
+	os.Chmod(h.cfg.Paths.StateDir, 0o500)
+	t.Cleanup(func() { os.Chmod(h.cfg.Paths.StateDir, 0o700) })
+	h.clock.Advance(10 * time.Minute)
+	for range 3 {
+		h.d.Health(ctx, h.clock.Now())
+		h.clock.Advance(2 * time.Minute)
+	}
+	n := 0
+	for _, m := range h.mailer.take() {
+		if m.Rcpt[0] == "ops@example.org" {
+			n++
+		}
+	}
+	if n != 1 || !strings.Contains(h.log.String(), "health mail not recorded in state.json") {
+		t.Errorf("%d mails\n%s", n, h.log)
+	}
+}
+
+// TestReplyClock: pings sent before a start count from it, but a daemon
+// that restarts again and again with no reply still warns.
+func TestReplyClock(t *testing.T) {
+	h, _, _ := healthHarness(t)
+	h.command("sendpings")
+	h.d.markStart(h.clock.Now())
+	for range 5 { // a restart every 2 hours
+		h.clock.Advance(2 * time.Hour)
+		h.restart()
+		h.d.markStart(h.clock.Now())
+	}
+	h.wantCheck("ping_replies", health.Warn, "no ping reply for 10h")
+	// A reply came after the last start: the next start resets the clock.
+	out, _ := h.st.Pings("yamn@virebent.art", time.Time{})
+	h.st.PingDone(out[0].ID, h.clock.Now(), 3600)
+	h.clock.Advance(time.Hour)
+	h.restart()
+	h.d.markStart(h.clock.Now())
+	h.wantCheck("ping_replies", health.OK, "last reply 1h ago")
+}
+
+// TestPeerFuture: a peer's Generated: in the future counts as the time
+// of the fetch, so the peer still goes stale when it's down.
+func TestPeerFuture(t *testing.T) {
+	h, _, _ := healthHarness(t)
+	up := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !up {
+			http.Error(w, "down", http.StatusBadGateway)
+			return
+		}
+		fmt.Fprint(w, "Stats-Version: 2.0\nGenerated: Fri 01 Jan 2100 00:00:00 GMT\n")
+	}))
+	defer srv.Close()
+	h.cfg.Peers = []config.Peer{{Name: "ahead", Mlist2: srv.URL + "/mlist2.txt"}}
+	h.restart()
+	h.d.CheckPeers(context.Background(), h.clock.Now())
+	h.wantCheck("peer_ahead", health.OK, "generated 0s ago")
+	up = false
+	h.clock.Advance(25 * time.Hour)
+	h.d.CheckPeers(context.Background(), h.clock.Now())
+	h.wantCheck("peer_ahead", health.Crit, "generated 25h ago")
 }

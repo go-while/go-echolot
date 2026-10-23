@@ -42,6 +42,8 @@ const (
 	jobHourly    = "hourly"         // peers and the yamn self-test
 	jobHourlyNow = "hourly-now"     // the same, once soon after the start
 	hourlyDelay  = time.Minute
+	notifyTime   = time.Minute      // to send one health mail
+	notifyRetry  = 30 * time.Minute // after a health mail failed
 )
 
 // healthState is what the checks need from the running daemon.
@@ -52,6 +54,12 @@ type healthState struct {
 	selfTestErr error
 	selfTestRan time.Time
 	sends       health.Window
+
+	// notified is the last mail per check: loaded from state.json at the
+	// first mail, then kept here, so a state.json that can't be written
+	// (a full disk) doesn't make every tick mail again.
+	notified    map[string]health.Notice
+	notifyAfter time.Time // no mail before this: the last one failed
 }
 
 func (h *healthState) scanned(at time.Time) {
@@ -67,8 +75,9 @@ func (h *healthState) selfTested(at time.Time, err error) {
 }
 
 // countingMailer counts the sends and their failures for the health
-// check.  Mail that wasn't attempted doesn't count: the rate fuse, and a
-// .onion recipient without mail.tor_socks.
+// check, and the mails the rate fuse held back.  Mail that wasn't
+// attempted doesn't count: a .onion recipient without mail.tor_socks, a
+// mail that failed the checks, a send cut off by the end of the tick.
 type countingMailer struct {
 	m   mailout.Mailer
 	w   *health.Window
@@ -77,37 +86,59 @@ type countingMailer struct {
 
 func (c countingMailer) Send(ctx context.Context, m mailout.Mail) error {
 	err := c.m.Send(ctx, m)
-	if !errors.Is(err, mailout.ErrRateLimited) && !errors.Is(err, mailout.ErrOnionWithoutTor) {
+	switch {
+	case errors.Is(err, mailout.ErrRateLimited):
+		c.w.Limited(c.now())
+	case errors.Is(err, mailout.ErrOnionWithoutTor) || errors.Is(err, mailout.ErrInvalid) || err != nil && ctx.Err() != nil:
+	default:
 		c.w.Add(c.now(), err != nil)
 	}
 	return err
 }
 
-// SelfTest runs the yamn self-test and keeps its result for the health
-// check.
+// SelfTest runs the yamn self-test, logs a failure and keeps the result
+// for the health check.
 func (d *Daemon) SelfTest(ctx context.Context, at time.Time) error {
 	err := pinger.SelfTest(ctx, d.encoder, at)
 	d.health.selfTested(at, err)
+	if err != nil {
+		d.log.Error("yamn self-test failed: no pings can be sent", "binary", d.cfg.Yamn.Binary, "err", err)
+	}
 	return err
 }
 
 // Hourly fetches the peers' files and runs the yamn self-test again.
 func (d *Daemon) Hourly(ctx context.Context, at time.Time) {
 	d.CheckPeers(ctx, at)
-	if err := d.SelfTest(ctx, at); err != nil {
-		d.log.Error("yamn self-test failed: no pings can be sent", "binary", d.cfg.Yamn.Binary, "err", err)
-	}
+	d.SelfTest(ctx, at)
 }
 
-// Health runs the checks, writes status.json and status.txt, and mails
-// the operator about changes.
-func (d *Daemon) Health(at time.Time) *health.Report {
-	r := health.NewReport(d.cfg.Pinger.Sitename, d.Version, at, d.HealthChecks(at))
+// Health runs the checks at now, writes status.json and status.txt, and
+// mails the operator about changes.
+func (d *Daemon) Health(ctx context.Context, now time.Time) *health.Report {
+	r := health.NewReport(d.cfg.Pinger.Sitename, d.Version, now, d.HealthChecks(now))
 	if err := writeStatus(d.cfg.Paths.ResultsDir, r); err != nil {
 		d.log.Error("status files not written", "err", err)
 	}
-	d.notify(r, at)
+	d.notify(ctx, r, now)
 	return r
+}
+
+// markStart sets the time from which the pings sent before it count,
+// at the start of run: now, unless no reply came since the last start.
+// So a daemon that restarts again and again still sees replies missing.
+func (d *Daemon) markStart(now time.Time) {
+	lastReply, _ := d.st.ReplyStatus()
+	err := d.st.Update(func(st *store.State) error {
+		hs := st.HealthState()
+		if hs.ReplyClock.IsZero() || lastReply.After(hs.ReplyClock) || hs.ReplyClock.After(now) {
+			hs.ReplyClock = now.UTC()
+		}
+		return nil
+	})
+	if err != nil {
+		d.log.Error("start time not saved", "err", err)
+	}
 }
 
 func writeStatus(dir string, r *health.Report) error {
@@ -132,10 +163,7 @@ func (d *Daemon) HealthChecks(now time.Time) []health.Check {
 	h.mu.Unlock()
 
 	lastReply, waiting := d.st.ReplyStatus()
-	if !waiting.IsZero() && waiting.Before(started) {
-		waiting = started // pings sent before a restart get the time since
-	}
-	sent, failed := h.sends.Counts(now)
+	sent, failed, limited := h.sends.Counts(now)
 	gen, genErr := readGenerated(filepath.Join(d.cfg.Paths.ResultsDir, "mlist2.txt"))
 
 	var (
@@ -166,6 +194,15 @@ func (d *Daemon) HealthChecks(now time.Time) []health.Check {
 				pending = append(pending, fmt.Sprintf("%s: %s %s", p.Address, p.Kind, p.New))
 			}
 		}
+		// Pings sent before a restart count from it: the replies that
+		// waited in the Maildir are read in the first minute.
+		replyClock := started
+		if st.Health != nil && !st.Health.ReplyClock.IsZero() {
+			replyClock = st.Health.ReplyClock
+		}
+		if !waiting.IsZero() && waiting.Before(replyClock) {
+			waiting = replyClock
+		}
 		if st.Health != nil {
 			bounces = maps.Clone(st.Health.Bounces)
 			for _, p := range d.cfg.Peers {
@@ -181,8 +218,8 @@ func (d *Daemon) HealthChecks(now time.Time) []health.Check {
 
 	checks := []health.Check{
 		health.Scan(lastScan, started, now),
-		health.Replies(lastReply, waiting, pingable, now),
-		health.Sends(sent, failed),
+		health.Replies(lastReply, waiting, pingable, d.cfg.Schedule.PingInterval, now),
+		health.Sends(sent, failed, limited),
 		health.Mlist2(gen, genErr, d.cfg.Schedule.StatsInterval, started, now),
 		health.Keys(published, expiring),
 		health.SelfTest(stErr, stRan, now),
@@ -191,7 +228,10 @@ func (d *Daemon) HealthChecks(now time.Time) []health.Check {
 	}
 	for _, p := range []struct{ name, path string }{{"state", d.cfg.Paths.StateDir}, {"results", d.cfg.Paths.ResultsDir}} {
 		free, err := diskFree(p.path)
-		checks = append(checks, health.Disk(p.name, p.path, free, err))
+		if err != nil {
+			d.log.Warn("free space unknown", "dir", p.path, "err", err)
+		}
+		checks = append(checks, health.Disk(p.name, free, err))
 	}
 	for _, p := range d.cfg.Peers {
 		checks = append(checks, health.PeerCheck(p.Name, peers[p.Name], now))
@@ -245,26 +285,32 @@ func (d *Daemon) recordBounce(addr string, at time.Time) {
 }
 
 // notify mails the operator (health.notify) about the checks that are due
-// (health.Due).  A failed send is tried again at the next run.
-func (d *Daemon) notify(r *health.Report, now time.Time) {
+// (health.Due).  A failed send is tried again after notifyRetry.
+func (d *Daemon) notify(ctx context.Context, r *health.Report, now time.Time) {
 	to := d.cfg.Health.Notify
 	if to == "" {
 		return
 	}
-	notified := map[string]health.Notice{}
-	d.st.View(func(st *store.State) {
-		if st.Health == nil {
-			return
-		}
-		for name, n := range st.Health.Notified {
-			var l health.Level
-			if l.UnmarshalText([]byte(n.State)) == nil {
-				notified[name] = health.Notice{State: l, Sent: n.Sent}
+	h := &d.health
+	h.mu.Lock()
+	if h.notified == nil {
+		h.notified = map[string]health.Notice{}
+		d.st.View(func(st *store.State) {
+			if st.Health == nil {
+				return
 			}
-		}
-	})
-	due := health.Due(r.Checks, notified, now)
-	if len(due) == 0 {
+			for name, n := range st.Health.Notified {
+				var l health.Level
+				if l.UnmarshalText([]byte(n.State)) == nil {
+					h.notified[name] = health.Notice{State: l, Sent: n.Sent}
+				}
+			}
+		})
+	}
+	due := health.Due(r.Checks, h.notified, now)
+	wait := now.Before(h.notifyAfter)
+	h.mu.Unlock()
+	if len(due) == 0 || wait {
 		return
 	}
 	subject, body := health.Digest(r, due)
@@ -272,30 +318,39 @@ func (d *Daemon) notify(r *health.Report, now time.Time) {
 	_, domain, _ := strings.Cut(from, "@")
 	data, err := mailout.ComposeRequest(from, to, ascii(subject), []byte(ascii(string(body))), now, domain)
 	if err == nil {
-		err = d.notifier.Send(context.Background(), mailout.Mail{EnvelopeFrom: from, Rcpt: []string{to}, Data: data})
+		ctx, cancel := context.WithTimeout(ctx, notifyTime)
+		err = d.notifier.Send(ctx, mailout.Mail{EnvelopeFrom: from, Rcpt: []string{to}, Data: data})
+		cancel()
 	}
 	if err != nil {
-		d.log.Error("health mail not sent", "to", to, "err", err)
+		h.mu.Lock()
+		h.notifyAfter = now.Add(notifyRetry)
+		h.mu.Unlock()
+		d.log.Error("health mail not sent; trying again later", "to", to, "retry", notifyRetry, "err", err)
 		return
 	}
 	var names []string
+	h.mu.Lock()
 	for _, c := range due {
+		h.notified[c.Name] = health.Notice{State: c.State, Sent: now.UTC()}
 		names = append(names, c.Name+"="+c.State.String())
 	}
+	// Forget the checks that are gone (a peer taken out of the config).
+	maps.DeleteFunc(h.notified, func(name string, _ health.Notice) bool {
+		return !slices.ContainsFunc(r.Checks, func(c health.Check) bool { return c.Name == name })
+	})
+	saved := map[string]store.Notice{}
+	for name, n := range h.notified {
+		saved[name] = store.Notice{State: n.State.String(), Sent: n.Sent}
+	}
+	h.mu.Unlock()
 	d.log.Info("health mail sent", "to", to, "checks", strings.Join(names, " "))
 	err = d.st.Update(func(st *store.State) error {
-		n := st.HealthState().Notified
-		for _, c := range due {
-			n[c.Name] = store.Notice{State: c.State.String(), Sent: now.UTC()}
-		}
-		// Forget the checks that are gone (a peer taken out of the config).
-		maps.DeleteFunc(n, func(name string, _ store.Notice) bool {
-			return !slices.ContainsFunc(r.Checks, func(c health.Check) bool { return c.Name == name })
-		})
+		st.HealthState().Notified = saved
 		return nil
 	})
 	if err != nil {
-		d.log.Error("health mail not recorded", "err", err)
+		d.log.Error("health mail not recorded in state.json", "err", err)
 	}
 }
 
@@ -351,7 +406,12 @@ func (d *Daemon) CheckPeers(ctx context.Context, at time.Time) {
 			if res.err != nil {
 				ps.Err = bounded(res.err.Error())
 			} else {
+				// Never later than now: a peer with a clock far ahead
+				// would stay ok however long it's down.
 				ps.Generated = res.generated
+				if ps.Generated.After(at) {
+					ps.Generated = at.UTC()
+				}
 			}
 			ps.KeysErr = ""
 			if res.keysErr != nil {

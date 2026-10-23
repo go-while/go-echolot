@@ -21,9 +21,9 @@ const (
 	ScanWarn = 5 * time.Minute // last good mailbox scan
 	ScanCrit = 30 * time.Minute
 
-	RepliesWarn = 3 * time.Hour // a ping out with no reply of any ping since
-	RepliesCrit = 6 * time.Hour
-	MinPingable = 2 // remailers pingable for RepliesCrit to be crit
+	RepliesWarn = 3 * time.Hour // at least; 1.5 ping intervals if longer
+	RepliesCrit = 6 * time.Hour // at least; 3 ping intervals if longer
+	MinPingable = 2             // remailers pingable for RepliesCrit to be crit
 
 	SendWindow = time.Hour // outgoing send failures are counted over this
 	FailWarn   = 0.10      // warn above this share of failures
@@ -142,13 +142,21 @@ func Scan(last, since, now time.Time) Check {
 	return check(name, level(age, ScanWarn, ScanCrit), "last good scan %s ago", Dur(age))
 }
 
+// RepliesThresholds are the warn and crit times without a ping reply for
+// a ping interval: a remailer's ping goes out at its slot in each
+// interval, so a long interval means long gaps.
+func RepliesThresholds(interval time.Duration) (warn, crit time.Duration) {
+	return max(RepliesWarn, interval*3/2), max(RepliesCrit, 3*interval)
+}
+
 // Replies checks that pings come back.  waiting is when the oldest ping
 // still out that was sent after the last reply left (zero: none is
 // out), but not before the daemon started; pingable is the number of
 // remailers being pinged.  Only with at least MinPingable of them is a
 // long silence crit: with one, that remailer may just be down.
-func Replies(lastReply, waiting time.Time, pingable int, now time.Time) Check {
+func Replies(lastReply, waiting time.Time, pingable int, interval time.Duration, now time.Time) Check {
 	const name = "ping_replies"
+	warn, crit := RepliesThresholds(interval)
 	last := "never"
 	if !lastReply.IsZero() {
 		last = Dur(now.Sub(lastReply)) + " ago"
@@ -157,7 +165,7 @@ func Replies(lastReply, waiting time.Time, pingable int, now time.Time) Check {
 		return check(name, OK, "last reply %s; no ping waiting", last)
 	}
 	age := now.Sub(waiting)
-	l := level(age, RepliesWarn, RepliesCrit)
+	l := level(age, warn, crit)
 	if l == Crit && pingable < MinPingable {
 		l = Warn
 	}
@@ -167,8 +175,19 @@ func Replies(lastReply, waiting time.Time, pingable int, now time.Time) Check {
 	return check(name, l, "no ping reply for %s (last reply %s; %d remailers pingable)", Dur(age), last, pingable)
 }
 
-// Sends checks the outgoing send failures in the last SendWindow.
-func Sends(sent, failed int) Check {
+// Sends checks the outgoing send failures in the last SendWindow, and
+// the mails the rate fuse (mail.max_per_hour) held back: limited.
+func Sends(sent, failed, limited int) Check {
+	const name = "send_failures"
+	c := sends(sent, failed)
+	if limited > 0 {
+		c.State = max(c.State, Warn)
+		c.Detail += fmt.Sprintf("; mail.max_per_hour held back %d mails", limited)
+	}
+	return c
+}
+
+func sends(sent, failed int) Check {
 	const name = "send_failures"
 	switch {
 	case sent < MinSends:
@@ -216,14 +235,14 @@ func Keys(published int, expiring []string) Check {
 }
 
 // SelfTest checks the yamn self-test; err is its result, ran when it was
-// run.
+// run.  The error stays in the log: status.json is public.
 func SelfTest(err error, ran, now time.Time) Check {
 	const name = "yamn_selftest"
 	switch {
 	case ran.IsZero():
 		return check(name, OK, "not run yet")
 	case err != nil:
-		return check(name, Crit, "failed %s ago: no pings can be sent: %v", Dur(now.Sub(ran)), err)
+		return check(name, Crit, "failed %s ago: no pings can be sent (the log has why)", Dur(now.Sub(ran)))
 	}
 	return check(name, OK, "passed %s ago", Dur(now.Sub(ran)))
 }
@@ -253,12 +272,13 @@ func Bounces(last map[string]time.Time, now time.Time) Check {
 	return check(name, OK, "none in the last %s", Dur(BounceWindow))
 }
 
-// Disk checks the free space of the file system of path: free is its
-// free share, err the error finding it.
-func Disk(name, path string, free float64, err error) Check {
+// Disk checks the free space of the file system of a directory: free is
+// its free share, err the error finding it.  The path isn't shown:
+// status.json is public.
+func Disk(name string, free float64, err error) Check {
 	name = "disk_" + name
 	if err != nil {
-		return check(name, Warn, "%s: %v", path, err)
+		return check(name, Warn, "free space unknown (the log has why)")
 	}
 	l := OK
 	switch {
@@ -267,7 +287,7 @@ func Disk(name, path string, free float64, err error) Check {
 	case free < DiskWarn:
 		l = Warn
 	}
-	return check(name, l, "%.1f%% free on %s", free*100, path)
+	return check(name, l, "%.1f%% free", free*100)
 }
 
 // Peer is what the last fetches of a peer's files found.
@@ -297,9 +317,10 @@ func PeerCheck(name string, p Peer, now time.Time) Check {
 }
 
 // PeerKeys reports the peers' key disagreements with our public keyring.
-// It's information only: always ok.
+// It's information only: always ok.  (Not "peer_keys": that would be the
+// check of a [peer keys].)
 func PeerKeys(disagree []string) Check {
-	const name = "peer_keys"
+	const name = "key_agreement"
 	if len(disagree) > 0 {
 		return check(name, OK, "%d disagreements: %s", len(disagree), list(disagree))
 	}
@@ -365,20 +386,28 @@ type Window struct {
 }
 
 type sendEvent struct {
-	at     time.Time
-	failed bool
+	at      time.Time
+	failed  bool
+	limited bool
 }
 
 // Add records a send at at.
 func (w *Window) Add(at time.Time, failed bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.events = append(w.events, sendEvent{at, failed})
+	w.events = append(w.events, sendEvent{at: at, failed: failed})
 }
 
-// Counts returns the sends and failures within SendWindow before now and
-// forgets older ones.
-func (w *Window) Counts(now time.Time) (sent, failed int) {
+// Limited records a mail that the rate fuse held back at at.
+func (w *Window) Limited(at time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.events = append(w.events, sendEvent{at: at, limited: true})
+}
+
+// Counts returns the sends, the failures among them and the mails held
+// back within SendWindow before now, and forgets older ones.
+func (w *Window) Counts(now time.Time) (sent, failed, limited int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	i := 0
@@ -387,12 +416,17 @@ func (w *Window) Counts(now time.Time) (sent, failed int) {
 	}
 	w.events = slices.Delete(w.events, 0, i)
 	for _, e := range w.events {
-		sent++
-		if e.failed {
+		switch {
+		case e.limited:
+			limited++
+		case e.failed:
+			sent++
 			failed++
+		default:
+			sent++
 		}
 	}
-	return sent, failed
+	return sent, failed, limited
 }
 
 // Notice is the last notification mail about a check.
@@ -424,12 +458,34 @@ func Digest(r *Report, due []Check) (subject string, body []byte) {
 	var b bytes.Buffer
 	b.WriteString("Changed:\n\n")
 	for _, c := range due {
-		fmt.Fprintf(&b, "%-5s %-18s %s\n", c.State, c.Name, c.Detail)
+		writeWrapped(&b, c)
 	}
-	b.WriteString("\nThe whole status:\n\n")
-	b.Write(r.Text())
+	fmt.Fprintf(&b, "\nThe whole status (%s, generated %s):\n\n", strings.ToUpper(r.State.String()), r.Generated.UTC().Format(time.RFC3339))
+	for _, c := range r.Checks {
+		writeWrapped(&b, c)
+	}
 	fmt.Fprintf(&b, "\nA check is mailed about at most once in %s.\n", Dur(NotifyEvery))
 	return subject, b.Bytes()
+}
+
+// mailWidth is where writeWrapped breaks details.
+const mailWidth = 72
+
+// writeWrapped writes c with its detail broken into lines at spaces, so
+// no line of a mail comes near RFC 5322's limit of 998.
+func writeWrapped(b *bytes.Buffer, c Check) {
+	fmt.Fprintf(b, "%-5s %s\n", c.State, c.Name)
+	line := "     "
+	for _, w := range strings.Fields(c.Detail) {
+		if len(line) > 5 && len(line)+1+len(w) > mailWidth {
+			b.WriteString(line + "\n")
+			line = "     "
+		}
+		line += " " + w
+	}
+	if len(line) > 5 {
+		b.WriteString(line + "\n")
+	}
 }
 
 // generatedLayouts are the forms of an mlist2.txt Generated: line:

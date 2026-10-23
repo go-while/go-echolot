@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -32,12 +34,22 @@ func statusAge(tick time.Duration) (warn, crit time.Duration) {
 
 var nagiosNames = []string{"OK", "WARNING", "CRITICAL"}
 
+// nagiosText makes s fit Nagios's first line: one line, and no "|",
+// which starts performance data there.
+func nagiosText(s string) string {
+	return strings.NewReplacer("|", "/", "\n", " ", "\r", " ").Replace(s)
+}
+
 // cmdCheck reads the daemon's status.json and exits with its state.  The
 // first line is Nagios's summary; the whole status follows.
 func cmdCheck(args []string, stdout, stderr io.Writer) error {
 	cfg, rest, err := loadConfig("check", args, stderr)
-	if err != nil {
+	if errors.Is(err, errUsage) || errors.Is(err, flag.ErrHelp) {
 		return err
+	}
+	if err != nil { // crit, not exit 1 (Nagios's warning)
+		fmt.Fprintf(stdout, "GO-ECHOLOT CRITICAL - %s\n", nagiosText(err.Error()))
+		return exitCode(health.Crit)
 	}
 	if len(rest) > 0 {
 		return usageError(stderr, "check", rest[0])
@@ -49,7 +61,7 @@ func cmdCheck(args []string, stdout, stderr io.Writer) error {
 		r, err = health.ParseReport(data)
 	}
 	if err != nil {
-		fmt.Fprintf(stdout, "GO-ECHOLOT CRITICAL - %s: %v (is the daemon running?)\n", path, err)
+		fmt.Fprintf(stdout, "GO-ECHOLOT CRITICAL - %s (is the daemon running?)\n", nagiosText(path+": "+err.Error()))
 		return exitCode(health.Crit)
 	}
 	warn, crit := statusAge(cfg.Schedule.Tick)
@@ -75,7 +87,7 @@ func cmdCheck(args []string, stdout, stderr io.Writer) error {
 	if len(bad) > 0 {
 		summary = strings.Join(bad, "; ")
 	}
-	fmt.Fprintf(stdout, "GO-ECHOLOT %s - %s\n", nagiosNames[r.State], summary)
+	fmt.Fprintf(stdout, "GO-ECHOLOT %s - %s\n", nagiosNames[r.State], nagiosText(summary))
 	stdout.Write(r.Text())
 	if r.State != health.OK {
 		return exitCode(r.State)

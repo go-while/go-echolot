@@ -176,7 +176,7 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 	d.loop.Every(jobDaily, 24*time.Hour, func(ctx context.Context, at time.Time) { d.Daily(at) })
 	d.loop.Every(jobCommands, commandsInterval, func(ctx context.Context, at time.Time) { d.Commands(ctx, at) })
 	d.loop.Debounced("hup", commandsDelay, func(ctx context.Context, at time.Time) { d.Commands(ctx, at) })
-	d.loop.Every(jobHealth, s.Tick, func(_ context.Context, at time.Time) { d.Health(at) })
+	d.loop.Every(jobHealth, s.Tick, func(ctx context.Context, _ time.Time) { d.Health(ctx, d.clock.Now()) })
 	d.loop.Every(jobHourly, health.PeerInterval, d.Hourly)
 	d.loop.Debounced(jobHourlyNow, hourlyDelay, d.Hourly)
 	// The watchdog is fed whenever a job completes: the loop runs every
@@ -194,9 +194,8 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 			}
 		}
 	}()
-	if err := d.SelfTest(ctx, d.clock.Now()); err != nil {
-		d.log.Error("yamn self-test failed: no pings can be sent", "binary", d.cfg.Yamn.Binary, "err", err)
-	}
+	d.markStart(d.clock.Now())
+	d.SelfTest(ctx, d.clock.Now())
 	if len(d.cfg.Peers) > 0 {
 		d.loop.Trigger(jobHourlyNow) // the peers' first fetch, not at the next full hour
 	}
@@ -375,7 +374,11 @@ func (d *Daemon) Handle(ctx context.Context, tok token.Token, m *mailin.Message)
 		})
 		d.log.Warn("bounce", "remailer", addr, "id", tok.ID, "sent", tok.Time.Format(time.RFC3339))
 		if addr != "" {
-			d.recordBounce(addr, now)
+			at := m.Delivered
+			if at.IsZero() || at.After(now) {
+				at = now
+			}
+			d.recordBounce(addr, at)
 		}
 		// Kept in mail-errors for the operator (§9.4), not processed.
 		return mailin.Permanent(fmt.Errorf("bounce for remailer id %d (%s)", tok.ID, addr))

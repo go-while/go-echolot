@@ -27,21 +27,27 @@ func TestScan(t *testing.T) {
 
 func TestReplies(t *testing.T) {
 	last := t0.Add(-10 * time.Hour)
-	want(t, Replies(last, time.Time{}, 5, t0), OK, "no ping waiting")
-	want(t, Replies(time.Time{}, time.Time{}, 5, t0), OK, "last reply never")
-	want(t, Replies(last, t0.Add(-2*time.Hour), 5, t0), OK, "last reply 10h ago")
-	want(t, Replies(last, t0.Add(-4*time.Hour), 5, t0), Warn, "no ping reply for 4h")
-	want(t, Replies(last, t0.Add(-7*time.Hour), 5, t0), Crit, "5 remailers pingable")
+	want(t, Replies(last, time.Time{}, 5, 2*time.Hour, t0), OK, "no ping waiting")
+	want(t, Replies(time.Time{}, time.Time{}, 5, 2*time.Hour, t0), OK, "last reply never")
+	want(t, Replies(last, t0.Add(-2*time.Hour), 5, 2*time.Hour, t0), OK, "last reply 10h ago")
+	want(t, Replies(last, t0.Add(-4*time.Hour), 5, 2*time.Hour, t0), Warn, "no ping reply for 4h")
+	want(t, Replies(last, t0.Add(-7*time.Hour), 5, 2*time.Hour, t0), Crit, "5 remailers pingable")
 	// One remailer: it may just be down.
-	want(t, Replies(last, t0.Add(-7*time.Hour), 1, t0), Warn, "1 remailers")
+	want(t, Replies(last, t0.Add(-7*time.Hour), 1, 2*time.Hour, t0), Warn, "1 remailers")
+	// A long ping interval moves the thresholds.
+	want(t, Replies(last, t0.Add(-7*time.Hour), 5, 6*time.Hour, t0), OK, "")
+	want(t, Replies(last, t0.Add(-10*time.Hour), 5, 6*time.Hour, t0), Warn, "10h")
+	want(t, Replies(last, t0.Add(-19*time.Hour), 5, 6*time.Hour, t0), Crit, "19h")
 }
 
 func TestSends(t *testing.T) {
-	want(t, Sends(0, 0), OK, "too few")
-	want(t, Sends(2, 2), OK, "too few")
-	want(t, Sends(10, 1), OK, "1 of 10")
-	want(t, Sends(10, 2), Warn, "2 of 10")
-	want(t, Sends(3, 3), Crit, "all 3")
+	want(t, Sends(0, 0, 0), OK, "too few")
+	want(t, Sends(2, 2, 0), OK, "too few")
+	want(t, Sends(10, 1, 0), OK, "1 of 10")
+	want(t, Sends(10, 2, 0), Warn, "2 of 10")
+	want(t, Sends(3, 3, 0), Crit, "all 3")
+	want(t, Sends(10, 0, 4), Warn, "0 of 10 sends failed in the last hour; mail.max_per_hour held back 4 mails")
+	want(t, Sends(3, 3, 4), Crit, "held back 4")
 }
 
 func TestWindow(t *testing.T) {
@@ -49,14 +55,15 @@ func TestWindow(t *testing.T) {
 	w.Add(t0, true)
 	w.Add(t0.Add(30*time.Minute), false)
 	w.Add(t0.Add(50*time.Minute), true)
-	if s, f := w.Counts(t0.Add(time.Hour)); s != 3 || f != 2 {
-		t.Errorf("at 1h: %d %d", s, f)
+	w.Limited(t0.Add(55 * time.Minute))
+	if s, f, l := w.Counts(t0.Add(time.Hour)); s != 3 || f != 2 || l != 1 {
+		t.Errorf("at 1h: %d %d %d", s, f, l)
 	}
-	if s, f := w.Counts(t0.Add(time.Hour + time.Second)); s != 2 || f != 1 {
-		t.Errorf("at 1h1s: %d %d", s, f)
+	if s, f, l := w.Counts(t0.Add(time.Hour + time.Second)); s != 2 || f != 1 || l != 1 {
+		t.Errorf("at 1h1s: %d %d %d", s, f, l)
 	}
-	if s, f := w.Counts(t0.Add(3 * time.Hour)); s != 0 || f != 0 {
-		t.Errorf("at 3h: %d %d", s, f)
+	if s, f, l := w.Counts(t0.Add(3 * time.Hour)); s != 0 || f != 0 || l != 0 {
+		t.Errorf("at 3h: %d %d %d", s, f, l)
 	}
 }
 
@@ -83,7 +90,7 @@ func TestKeysCheck(t *testing.T) {
 func TestOthers(t *testing.T) {
 	want(t, SelfTest(nil, time.Time{}, t0), OK, "not run yet")
 	want(t, SelfTest(nil, t0.Add(-time.Hour), t0), OK, "passed 1h ago")
-	want(t, SelfTest(errors.New("no yamn"), t0, t0), Crit, "no yamn")
+	want(t, SelfTest(errors.New("no yamn"), t0, t0), Crit, "no pings can be sent")
 	want(t, Pending(nil), OK, "none")
 	want(t, Pending([]string{"a@b: key 12"}), Warn, "1 changes in quarantine")
 	b := map[string]time.Time{"old@x": t0.Add(-25 * time.Hour), "new@x": t0.Add(-time.Hour)}
@@ -92,11 +99,11 @@ func TestOthers(t *testing.T) {
 		t.Errorf("an old bounce counts: %q", c.Detail)
 	}
 	want(t, Bounces(map[string]time.Time{"old@x": t0.Add(-25 * time.Hour)}, t0), OK, "none")
-	want(t, Disk("state", "/s", 0.5, nil), OK, "50.0% free on /s")
-	want(t, Disk("state", "/s", 0.05, nil), Warn, "5.0%")
-	want(t, Disk("state", "/s", 0.01, nil), Crit, "1.0%")
-	want(t, Disk("state", "/s", 0, errors.New("gone")), Warn, "/s: gone")
-	if c := Disk("results", "/r", 1, nil); c.Name != "disk_results" {
+	want(t, Disk("state", 0.5, nil), OK, "50.0% free")
+	want(t, Disk("state", 0.05, nil), Warn, "5.0%")
+	want(t, Disk("state", 0.01, nil), Crit, "1.0%")
+	want(t, Disk("state", 0, errors.New("gone")), Warn, "unknown")
+	if c := Disk("results", 1, nil); c.Name != "disk_results" {
 		t.Errorf("name %q", c.Name)
 	}
 	want(t, PeerKeys(nil), OK, "agree")
@@ -204,10 +211,16 @@ func TestDue(t *testing.T) {
 		t.Errorf("flapped back: %s", got)
 	}
 	r := NewReport("P", "", t0, checks)
+	checks[2].Detail = strings.Repeat("a-long-item-name, ", 80)
 	subject, body := Digest(r, checks[2:])
-	if subject != "go-echolot health: CRIT (P)" || !strings.HasPrefix(string(body), "Changed:\n\ncrit  c") ||
-		!strings.Contains(string(body), "go-echolot health: CRIT\n") {
+	if subject != "go-echolot health: CRIT (P)" || !strings.HasPrefix(string(body), "Changed:\n\ncrit  c\n      a-long-item-name,") ||
+		!strings.Contains(string(body), "The whole status (CRIT, generated 2026-10-23T12:00:00Z):\n\nwarn  a\n") {
 		t.Errorf("digest %q:\n%s", subject, body)
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		if len(line) > mailWidth+20 {
+			t.Errorf("long line in the mail: %q", line)
+		}
 	}
 }
 

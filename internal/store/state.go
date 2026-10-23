@@ -65,6 +65,9 @@ type Health struct {
 	Bounces  map[string]time.Time   `json:"bounces,omitempty"`  // remailer address -> last bounce received
 	Peers    map[string]*PeerStatus `json:"peers,omitempty"`    // by [peer <name>]
 	Notified map[string]Notice      `json:"notified,omitempty"` // check name -> the last mail about it
+	// ReplyClock: pings sent before it count from it.  Set at the start
+	// of the daemon, unless no ping reply came since the last start.
+	ReplyClock time.Time `json:"reply_clock,omitzero"`
 }
 
 // PeerStatus is what the last fetches of a peer pinger's files found.
