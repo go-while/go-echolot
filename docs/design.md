@@ -182,7 +182,7 @@ internal/pinger          ping body, sealing, Encoder (yamn subprocess), receive
 internal/stats           Echolot calculate(), history/caps strings
 internal/output          pubring.mix, type2.list, mlist2.txt, mlist.txt, .meta, HTML (phase 3)
 internal/sched           slot hashing, job loop, debounced triggers
-internal/sign            minisign sign/verify (phase 4)
+internal/minisign        minisign sign/verify (phase 4)
 internal/health          health checks, status.json/txt, peer checks, notifications
 internal/chain           chain pings and broken-chain detection (phase 3)
 internal/civil           Date: a calendar date in UTC (yamn's "2006-01-02" key dates), our own small type
@@ -1072,26 +1072,35 @@ WantedBy=multi-user.target
 
 ### 10.2 Health and staleness self-monitoring
 
-Checks run every tick. Each has a state ok/warn/crit:
+Checks run every tick (`internal/health` has the thresholds, `internal/app/health.go` gathers the inputs). Each has a state ok/warn/crit:
 
-| Check | warn | crit |
+| Check (name) | warn | crit |
 |---|---|---|
-| Last mailbox scan | > 5 min | > 30 min |
-| Ping replies received (any remailer) | none in 3 h | none in 6 h, while ≥ 2 remailers are pingable |
-| Outgoing send failures | > 10 % over 1 h | 100 % over 1 h |
-| `mlist2.txt` Generated age | > 15 min | > 1 h |
-| Publishable keys | a key expires in < 24 h with no successor | 0 keys |
-| yamn self-test | — | fails |
-| Pending quarantine | any | — |
-| Bounces for a remailer | any in 24 h | — |
-| Disk free in state/results | < 10 % | < 2 % |
-| **Peer pingers** (`health.peers`: mlist2 URLs, fetched hourly) | `Generated` > 6 h old | > 24 h old |
-| Peers' key disagreement with us | — (info) | — |
+| Last good mailbox scan (`mailbox_scan`) | > 5 min | > 30 min |
+| Ping replies received, any remailer (`ping_replies`) | a ping out for 3 h (or 1.5 × `ping_interval`) with no reply of any ping since | 6 h (or 3 × `ping_interval`), while ≥ 2 remailers are pingable (else warn) |
+| Outgoing send failures (`send_failures`) | > 10 % over 1 h, or any mail held back by `mail.max_per_hour` | 100 % over 1 h |
+| `mlist2.txt` Generated age (`mlist2_age`) | > 15 min (or 3 × `stats_interval`) | > 1 h (or 12 × `stats_interval`) |
+| Publishable keys (`keys`) | a published key expires in < 24 h with no successor | 0 keys |
+| yamn self-test (`yamn_selftest`) | — | fails |
+| Pending quarantine (`pending`) | any | — |
+| Bounces for a remailer (`bounces`) | any in 24 h | — |
+| Disk free in state/results (`disk_state`, `disk_results`) | < 10 % | < 2 % |
+| **Peer pingers** (`peer_<name>`: `[peer <name>] mlist2`, fetched hourly) | `Generated` > 6 h old, or never fetched | > 24 h old |
+| Peers' key disagreement with us (`key_agreement`) | — (info) | — |
+
+Details:
+- **Replies.** The clock starts at the oldest ping still out that was sent after the newest reply, so a pinger with nothing to ping stays ok. Pings sent before a start of `run` count from that start: the replies that waited in the Maildir are read within a minute. The start time is kept in `state.json` (`health.reply_clock`) and moves only when a reply came since the last start, so a daemon that restarts again and again still warns.
+- **Send failures** count every attempt to send a request or a ping, except those never attempted: a `.onion` recipient without `mail.tor_socks`, a mail that fails the checks, a send cut off at the end of the tick. Fewer than 3 sends in the hour are too few to judge. Mails the rate fuse held back aren't failures, but any in the hour make the check warn: the network has outgrown `mail.max_per_hour`.
+- **mlist2.txt** is read back from `results_dir`: the check sees what clients get. A missing file is crit only once the stats should have been written.
+- **Keys.** A successor is another key of the remailer, active or in quarantine, that expires later.
+- **Self-test** runs at the start and hourly.
+- **Bounces** are kept in `state.json` (`health.bounces`) with their delivery time, so a restart doesn't hide them and old bounces read after downtime don't count as new.
+- **Peers.** The peers' `mlist2.txt` are fetched at the start and hourly, all at once, with a 30 s timeout and at most 2 MiB each. A peer that can't be fetched ages from its last good fetch, so a host that is down goes warn and then crit. A `Generated` time in the future counts as the time of the fetch, so a peer with a clock far ahead still goes stale. What the fetches found is kept in `state.json` (`health.peers`) across restarts. The peer's `pubring.mix` (`[peer <name>] pubring`, by default next to its `mlist2.txt`) is compared with our public keyring: each address both list with different keyids is logged and shown under `key_agreement` (not `peer_keys`, which would be the check of a `[peer keys]`). That check is for information only and is always ok: during a key rotation, pingers disagree for hours.
 
 Outputs:
-- `results/status.json` (machine-readable) and `status.txt`, both rewritten every tick;
-- `go-echolot check` returns exit 0/1/2 for Nagios/cron;
-- `health.notify` mails the operator: a digest on state change, at most 1 per 6 h per check.
+- `results/status.json` (machine-readable: `generated`, `pinger`, `version`, `state`, and each check's `name`, `state` and `detail`) and `status.txt`, both rewritten every tick. They are public, like the rest of `results_dir`: they hold counts, remailer addresses and the peers' fetch errors, but no local paths or yamn errors (those go to the log).
+- `go-echolot check` reads `status.json` and exits 0/1/2 (ok/warn/crit) for Nagios or cron. The first line is Nagios's summary (`GO-ECHOLOT WARNING - pending: …`); the whole status follows. It adds a `status_age` check, because a stopped or hung daemon stops rewriting the file: warn after 15 min (or 3 ticks), crit after 30 min (or 6 ticks). A missing or unreadable `status.json`, or a config `check` can't read, is crit. A `|` in a detail becomes `/`, since Nagios reads performance data after it.
+- `health.notify` mails the operator a digest when a check's state differs from the one last mailed about (ok if none was), at most 1 mail per 6 h per check. A check that changes again within the 6 h waits; once due, the mail has its state then, so a flap that settles back sends nothing. The mail lists the changed checks, then the whole status. The last mail per check is kept in memory and in `state.json` (`health.notified`), so a restart doesn't mail again, nor every tick when `state.json` can't be written (a full disk). A failed send is tried again after 30 min, not every tick, and each send gets at most 1 min of the job loop. Long details are wrapped in the mail, so no line comes near RFC 5322's 998. Health mails go out from `pinger.address` and count against `mail.max_per_hour`, but not as sends in `send_failures`.
 
 The July 8 – August 7 outage would have shown up in two ways:
 - the "no ping replies / no scan" checks, if the process was alive but mail was broken;
@@ -1177,6 +1186,7 @@ notify = remops@example.org
 
 [peer mixmin]
 mlist2 = https://www.mixmin.net/yamn/mlist2.txt
+pubring =                               # empty: pubring.mix next to mlist2
 
 [peer victor]
 mlist2 = https://echolot.virebent.art/mlist2.txt

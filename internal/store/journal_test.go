@@ -390,3 +390,26 @@ func TestJournalTruncateFails(t *testing.T) {
 		t.Errorf("after reopen: %+v\n%s", out, buf)
 	}
 }
+
+func TestReplyStatus(t *testing.T) {
+	s := open(t, t.TempDir())
+	if last, waiting := s.ReplyStatus(); !last.IsZero() || !waiting.IsZero() {
+		t.Errorf("empty: %v %v", last, waiting)
+	}
+	a, b := "a@x.example", "b@x.example"
+	p1, _ := s.NewPing(a, "k1", false, t0)
+	s.NewPing(b, "k2", false, t0.Add(time.Hour))
+	if last, waiting := s.ReplyStatus(); !last.IsZero() || !waiting.Equal(t0) {
+		t.Errorf("none back: %v %v", last, waiting)
+	}
+	s.PingDone(p1.ID, t0.Add(90*time.Minute), 5400)
+	if last, waiting := s.ReplyStatus(); !last.Equal(t0.Add(90*time.Minute)) || !waiting.IsZero() {
+		t.Errorf("one back after the other was sent: %v %v", last, waiting)
+	}
+	p3, _ := s.NewPing(a, "k1", false, t0.Add(2*time.Hour))
+	p4, _ := s.NewPing(b, "k2", false, t0.Add(3*time.Hour))
+	s.PingAborted(p3.ID, "local failure")
+	if last, waiting := s.ReplyStatus(); !last.Equal(t0.Add(90*time.Minute)) || !waiting.Equal(p4.Sent) {
+		t.Errorf("aborted left out: %v %v", last, waiting)
+	}
+}

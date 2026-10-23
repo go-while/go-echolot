@@ -57,6 +57,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case errors.Is(err, errUsage):
 			return 2
 		}
+		var code exitCode
+		if errors.As(err, &code) {
+			return int(code)
+		}
 		var exit *exitError
 		if errors.As(err, &exit) {
 			fmt.Fprintf(stderr, "go-echolot %s: %v\n", c.name, err)

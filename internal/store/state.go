@@ -54,6 +54,53 @@ type State struct {
 	// signature is published, so timestamps never go backwards, also
 	// after a restart.
 	Signed map[string]int64 `json:"signed,omitempty"`
+	// Health is what the self-monitoring keeps across restarts (§10.2).
+	Health *Health `json:"health,omitempty"`
+}
+
+// Health is what the self-monitoring keeps across restarts (design
+// §10.2): a restart mustn't hide a bounce, a peer that is down, or send
+// the same notification mail again.
+type Health struct {
+	Bounces  map[string]time.Time   `json:"bounces,omitempty"`  // remailer address -> last bounce received
+	Peers    map[string]*PeerStatus `json:"peers,omitempty"`    // by [peer <name>]
+	Notified map[string]Notice      `json:"notified,omitempty"` // check name -> the last mail about it
+	// ReplyClock: pings sent before it count from it.  Set at the start
+	// of the daemon, unless no ping reply came since the last start.
+	ReplyClock time.Time `json:"reply_clock,omitzero"`
+}
+
+// PeerStatus is what the last fetches of a peer pinger's files found.
+type PeerStatus struct {
+	Checked   time.Time `json:"checked"`            // the last attempt
+	Generated time.Time `json:"generated,omitzero"` // Generated: of its mlist2.txt at the last good fetch
+	Err       string    `json:"err,omitempty"`      // the last attempt's error
+	Keys      []string  `json:"keys,omitempty"`     // its keys that differ from ours, at the last good pubring fetch
+	KeysErr   string    `json:"keys_err,omitempty"` // the last pubring fetch's error
+}
+
+// Notice is the last notification mail about a check.
+type Notice struct {
+	State string    `json:"state"` // ok, warn, crit
+	Sent  time.Time `json:"sent"`
+}
+
+// HealthState returns st.Health, made if needed, with its maps.
+func (st *State) HealthState() *Health {
+	if st.Health == nil {
+		st.Health = &Health{}
+	}
+	h := st.Health
+	if h.Bounces == nil {
+		h.Bounces = map[string]time.Time{}
+	}
+	if h.Peers == nil {
+		h.Peers = map[string]*PeerStatus{}
+	}
+	if h.Notified == nil {
+		h.Notified = map[string]Notice{}
+	}
+	return h
 }
 
 // Remailer is one remailer address the pinger knows.

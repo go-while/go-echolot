@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/go-while/go-echolot/internal/chain"
 	"github.com/go-while/go-echolot/internal/config"
+	"github.com/go-while/go-echolot/internal/health"
 	"github.com/go-while/go-echolot/internal/keys"
 	"github.com/go-while/go-echolot/internal/mailin"
 	"github.com/go-while/go-echolot/internal/mailout"
@@ -83,6 +85,10 @@ type Daemon struct {
 	chainAt  time.Time    // when it was made; zero: not yet
 
 	signer *signer // nil: signing is off (§9.5)
+
+	health     healthState    // for the checks (§10.2)
+	notifier   mailout.Mailer // health mails: not counted as sends
+	httpClient *http.Client   // the peers' files
 }
 
 // NewDaemon returns the daemon for cfg on the open store st.  mailer sends
@@ -99,7 +105,7 @@ func NewDaemon(cfg *config.Config, st *store.Store, mailer mailout.Mailer, log *
 		return nil, err
 	}
 	d := &Daemon{
-		cfg: cfg, st: st, minter: m, mailer: mailer, log: log, clock: clock,
+		cfg: cfg, st: st, minter: m, log: log, clock: clock,
 		loop:     sched.New(clock, log),
 		schedKey: token.DeriveKey(st.Secret(), token.PurposeSched),
 		lastTok:  map[string]int64{},
@@ -110,6 +116,10 @@ func NewDaemon(cfg *config.Config, st *store.Store, mailer mailout.Mailer, log *
 		encoder: &pinger.YamnEncoder{Binary: cfg.Yamn.Binary, Timeout: cfg.Yamn.Timeout,
 			Sender: cfg.Pinger.Address, Log: log},
 	}
+	d.health.started = clock.Now()
+	d.notifier = mailer
+	d.mailer = countingMailer{m: mailer, w: &d.health.sends, now: clock.Now}
+	d.httpClient = &http.Client{Timeout: peerTimeout}
 	if d.signer, err = newSigner(cfg, st, log); err != nil {
 		return nil, err
 	}
@@ -166,6 +176,9 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 	d.loop.Every(jobDaily, 24*time.Hour, func(ctx context.Context, at time.Time) { d.Daily(at) })
 	d.loop.Every(jobCommands, commandsInterval, func(ctx context.Context, at time.Time) { d.Commands(ctx, at) })
 	d.loop.Debounced("hup", commandsDelay, func(ctx context.Context, at time.Time) { d.Commands(ctx, at) })
+	d.loop.Every(jobHealth, s.Tick, func(ctx context.Context, _ time.Time) { d.Health(ctx, d.clock.Now()) })
+	d.loop.Every(jobHourly, health.PeerInterval, d.Hourly)
+	d.loop.Debounced(jobHourlyNow, hourlyDelay, d.Hourly)
 	// The watchdog is fed whenever a job completes: the loop runs every
 	// job in one goroutine, so a stuck job starves it and systemd
 	// restarts the daemon.  A request tick is limited to one tick
@@ -181,8 +194,10 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 			}
 		}
 	}()
-	if err := pinger.SelfTest(ctx, d.encoder, d.clock.Now()); err != nil {
-		d.log.Error("yamn self-test failed: no pings can be sent", "binary", d.cfg.Yamn.Binary, "err", err)
+	d.markStart(d.clock.Now())
+	d.SelfTest(ctx, d.clock.Now())
+	if len(d.cfg.Peers) > 0 {
+		d.loop.Trigger(jobHourlyNow) // the peers' first fetch, not at the next full hour
 	}
 	sdnotify.Notify(sdnotify.Ready)
 	d.log.Info("go-echolot running", "state_dir", d.cfg.Paths.StateDir)
@@ -335,6 +350,7 @@ func (d *Daemon) ScanMail(ctx context.Context) {
 		d.log.Error("mailbox scan", "err", err)
 		return
 	}
+	d.health.scanned(d.clock.Now())
 	if res.Handled+res.Rejected+res.Pending > 0 {
 		d.log.Info("mailbox scanned", "handled", res.Handled, "rejected", res.Rejected, "pending", res.Pending)
 	}
@@ -357,6 +373,13 @@ func (d *Daemon) Handle(ctx context.Context, tok token.Token, m *mailin.Message)
 			}
 		})
 		d.log.Warn("bounce", "remailer", addr, "id", tok.ID, "sent", tok.Time.Format(time.RFC3339))
+		if addr != "" {
+			at := m.Delivered
+			if at.IsZero() || at.After(now) {
+				at = now
+			}
+			d.recordBounce(addr, at)
+		}
 		// Kept in mail-errors for the operator (§9.4), not processed.
 		return mailin.Permanent(fmt.Errorf("bounce for remailer id %d (%s)", tok.ID, addr))
 	}
