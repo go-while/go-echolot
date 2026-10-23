@@ -1,0 +1,51 @@
+# go-echolot with Docker Compose (README, "Docker").
+#
+# Like the systemd setup in docs/design.md §10.1, only that the binaries
+# run in a container: the host's MTA delivers into the Maildir in the
+# state dir and relays the outgoing mail, and the host's web server serves
+# results_dir.
+#
+#   mkdir -p /var/lib/go-echolot/Maildir/new /var/lib/go-echolot/Maildir/cur \
+#            /var/lib/go-echolot/Maildir/tmp /var/www/pinger/yamn
+#   chown -R pinger: /var/lib/go-echolot /var/www/pinger/yamn
+#   export PINGER_UID=$(id -u pinger) PINGER_GID=$(id -g pinger)
+#   VERSION=$(git describe --always --dirty) docker compose build
+#   docker compose up -d
+#   docker compose exec go-echolot go-echolot add remailer@example.org
+#   docker compose exec go-echolot go-echolot check    # 0 ok, 1 warn, 2 crit
+#
+# The MTA usually makes the Maildir; go-echolot doesn't, and logs an error
+# every tick until it exists.  Mail can also come in through a pipe:
+#   docker compose exec -T go-echolot go-echolot deliver < mail
+#
+# In config.ini (start from examples/config.ini):
+#   [paths]  state_dir = /var/lib/go-echolot
+#            results_dir = /var/www/pinger/yamn
+#   [mail]   method = smtp          # the image has no sendmail
+#            smtp_relay = localhost # the host's MTA, through network_mode: host
+#   [yamn]   binary = /usr/local/bin/yamn (the default)
+
+services:
+  go-echolot:
+    build:
+      context: ../..
+      args:
+        VERSION: ${VERSION:-}
+    image: go-echolot
+    restart: unless-stopped
+    # The host's network: smtp_relay = localhost reaches the host's MTA
+    # (a relay elsewhere needs usetls = true and a certificate it can
+    # verify), and tor_socks = 127.0.0.1:9050 the host's Tor.
+    network_mode: host
+    # The host user that owns the state dir and the Maildir, so the MTA
+    # and go-echolot can share them.  Without it: 65532:65532.
+    user: "${PINGER_UID:-65532}:${PINGER_GID:-65532}"
+    read_only: true
+    tmpfs:
+      - /tmp # yamn's work dirs
+    volumes:
+      - ./config.ini:/etc/go-echolot/config.ini:ro
+      - /var/lib/go-echolot:/var/lib/go-echolot
+      - /var/www/pinger/yamn:/var/www/pinger/yamn
+    # A tick is at most a few minutes of work; let the daemon finish it.
+    stop_grace_period: 1m

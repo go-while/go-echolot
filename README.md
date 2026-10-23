@@ -48,6 +48,7 @@ A pinger:
 - `internal/fileutil/`: atomic file writes. `internal/civil/`: calendar dates for key validity.
 - `examples/config.ini`: an example config that documents every key.
 - `examples/go-echolot.service`: a systemd unit (`Type=notify`, watchdog).
+- `Dockerfile`, `examples/docker/compose.yaml`: an image with go-echolot and the yamn binary, and how to run it (see "Docker" below).
 - `tools/golden/`: a harness that runs Echolot's unmodified `Stats.pm` on synthetic ping data, so go-echolot's stats can be tested against Echolot's numbers. See its [README](tools/golden/README.md).
 - `testdata/golden/case1..5/`: inputs and Echolot's output for the stats tests: the edge cases of design §11, `sort_by_latency`, 7 stats days, no remailers.
 - `testdata/replies/`: a real yamn `remailer-key` and `remailer-conf` reply from victor's remailer (`yamn@virebent.art`), as stored by mixmin's pinger, for the reply parsers.
@@ -67,6 +68,20 @@ go test -race ./...
 # against the reference minisign tool (Debian: apt install minisign):
 MINISIGN_BIN=$(command -v minisign) go test -run Minisign ./internal/minisign
 ```
+
+## Docker
+
+The `Dockerfile` builds go-echolot and yamn (a fixed commit of go-while/yamn, `--build-arg YAMN_REF=` to change it) into a ~20 MB image with no shell, running as uid 65532 unless `--user` says otherwise. Only Docker Hub images are pulled. It builds with Docker and with podman.
+
+```sh
+docker build --build-arg VERSION="$(git describe --always --dirty)" -t go-echolot .
+```
+
+The container needs the config at `/etc/go-echolot/config.ini` and the state dir at `/var/lib/go-echolot`; the rest is as in design §10.1, with two differences:
+- `mail.method = smtp`, since the image has no sendmail. With the host's network (`network_mode: host`), `smtp_relay = localhost` is the host's MTA.
+- The Maildir (`Maildir/new`, `cur`, `tmp`) must exist; go-echolot doesn't create it. The host's MTA delivers into it, or mail is piped in with `docker exec -i <container> go-echolot deliver`.
+
+Commands go through `docker exec` (`docker compose exec go-echolot go-echolot add …`, `… status`, `… check`), which reaches the running daemon as on a host. [`examples/docker/compose.yaml`](examples/docker/compose.yaml) has a complete setup: the host user that owns the state dir and Maildir, a read-only root with `/tmp` as tmpfs, and `results_dir` bind-mounted for the web server.
 
 ## License
 

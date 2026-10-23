@@ -84,3 +84,35 @@ jobs:
             echo "building $target"
             GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/go-echolot
           done
+
+  # The image (Dockerfile): it builds, both binaries run, and a daemon in
+  # it starts, runs the yamn self-test and writes its status files.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: build the image
+        run: docker build --build-arg VERSION="ci-${GITHUB_SHA::12}" -t go-echolot .
+
+      - name: run it
+        run: |
+          docker run --rm go-echolot version
+          docker run --rm --entrypoint /usr/local/bin/yamn go-echolot -V
+          d="$RUNNER_TEMP/pinger"
+          mkdir -p "$d/state/Maildir/new" "$d/state/Maildir/cur" "$d/state/Maildir/tmp"
+          sed -e 's/^method = sendmail /method = smtp /' -e 's/^tick = 5m /tick = 1m /' \
+            -e 's/^stats_interval = 5m/stats_interval = 1m/' examples/config.ini > "$d/config.ini"
+          docker run --rm -v "$d/config.ini:/etc/go-echolot/config.ini:ro" go-echolot dumpconf > /dev/null
+          docker run -d --name pinger --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp \
+            -v "$d/config.ini:/etc/go-echolot/config.ini:ro" -v "$d/state:/var/lib/go-echolot" go-echolot
+          for i in $(seq 1 30); do
+            [ -f "$d/state/results/status.txt" ] && break
+            sleep 5
+          done
+          docker logs pinger
+          cat "$d/state/results/status.txt"
+          grep -q '^ok *yamn_selftest' "$d/state/results/status.txt"
+          docker exec pinger go-echolot add remailer@remailer.example.org | grep -q 'queued for the running daemon'
+          docker stop pinger
+          [ "$(docker inspect pinger --format '{{.State.ExitCode}}')" = 0 ]
