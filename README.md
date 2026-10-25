@@ -83,6 +83,8 @@ The container needs the config at `/etc/go-echolot/config.ini` and the state dir
 - `mail.method = smtp`, since the image has no sendmail. With the host's network (`network_mode: host`), `smtp_relay = localhost` is the host's MTA.
 - The Maildir (`Maildir/new`, `cur`, `tmp`) must exist; go-echolot doesn't create it. The host's MTA delivers into it, or mail is piped in with `docker exec -i <container> go-echolot deliver`.
 
+The host's MTA setup matters as much as the container: design §10.1 "Postfix notes" has what the first deployment found (only the pinger and root as local recipients, `transport_maps` when outgoing port 25 is blocked, IPv4 for senders without a PTR, the certbot hook, no Docker port mapping for port 25).
+
 Commands go through `docker exec` (`docker compose exec go-echolot go-echolot add …`, `… status`, `… check`), which reaches the running daemon as on a host. [`examples/docker/compose.yaml`](examples/docker/compose.yaml) has a complete setup: the host user that owns the state dir and Maildir, a read-only root with `/tmp` as tmpfs, and `results_dir` bind-mounted for the web server.
 
 ## License
