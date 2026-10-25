@@ -12,11 +12,12 @@
 ARG GO_IMAGE=docker.io/library/golang:1.27.3
 
 # yamn is a separate program, not a Go dependency (design §3): build it
-# from a fixed commit of go-while/yamn.  28f2e6c has PR #72 (signature
-# checks); the design needs at least c6d9a95.
+# from a fixed commit of go-while/yamn.  d5f9d63 has PR #72 (signature
+# checks) and PR #73: yamn refuses to run as root (-V and --version
+# excepted), so the image runs as nonroot and --user must not be 0.
 FROM ${GO_IMAGE} AS yamn
 ARG YAMN_REPO=https://github.com/go-while/yamn
-ARG YAMN_REF=28f2e6cfa1006c1a497eca5fb0f7896ece84d557
+ARG YAMN_REF=d5f9d6335a7df6a3b9fe0de31e4359176908f8c7
 WORKDIR /src
 RUN git init -q . \
  && git fetch -q --depth 1 "$YAMN_REPO" "$YAMN_REF" \

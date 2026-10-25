@@ -67,11 +67,22 @@ func (r *yamnRemailer) deliver(t *testing.T, m []byte) [][]byte {
 	return out
 }
 
-func TestYamnEndToEnd(t *testing.T) {
+// yamnBin returns $YAMN_BIN, or skips the test without it, or as root:
+// yamn refuses to run as root (go-while/yamn PR #73).
+func yamnBin(t *testing.T) string {
+	t.Helper()
 	bin := os.Getenv("YAMN_BIN")
 	if bin == "" {
 		t.Skip("YAMN_BIN not set")
 	}
+	if os.Geteuid() == 0 {
+		t.Skip("yamn refuses to run as root; run the yamn tests as another user")
+	}
+	return bin
+}
+
+func TestYamnEndToEnd(t *testing.T) {
+	bin := yamnBin(t)
 	rem := newYamnRemailer(t, bin, "exit1")
 	h := newHarnessAt(t, true, time.Now().UTC().Truncate(time.Second))
 	h.d.encoder = &pinger.YamnEncoder{Binary: bin, Timeout: 30 * time.Second, Sender: h.cfg.Pinger.Address}
@@ -168,10 +179,7 @@ func TestYamnEndToEnd(t *testing.T) {
 // TestYamnChainPing: a chain ping through two real yamn remailers, A then
 // B, comes back and is done.
 func TestYamnChainPing(t *testing.T) {
-	bin := os.Getenv("YAMN_BIN")
-	if bin == "" {
-		t.Skip("YAMN_BIN not set")
-	}
+	bin := yamnBin(t)
 	a, b := newYamnRemailer(t, bin, "exita"), newYamnRemailer(t, bin, "exitb")
 	// A forwards to B only if B's key is in A's pubring (yamn checkNextHop).
 	bKey, _ := os.ReadFile(filepath.Join(b.dir, "key.txt"))
