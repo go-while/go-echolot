@@ -995,7 +995,8 @@ stats:
 **Algorithm.** Run at the existing hourly fetch (`Y:server.go:140-162`) and client fetch (`Y:client.go:133-138`).
 
 1. **Fetch** each pinger's files into `<files.pubring>.<name>` and `<files.mlist2>.<name>`, with today's validation (`CheckPubring`/`CheckStats`) and signature checks. A failed fetch keeps that pinger's previous copy.
-   - **Keys:** a pinger's last accepted pubring counts. For a pinger with keys, a download must verify and be no older than `urls.max_signature_age_hours` (the signature's `timestamp`, §9.5) to replace it; a refused download keeps the previous copy (`pubring.mix.<name>`). So a pinger whose new files keep failing still votes with its last accepted pubring, bounded by the keys' own dates and the quorum.
+   - **Keys:** a pinger's last accepted pubring counts. For a pinger with keys, a download must verify and be no older than `urls.max_signature_age_hours` (the signature's `timestamp`, §9.5) to replace it; a refused download keeps the previous copy (`pubring.mix.<name>`), and its accepted signature is stored next to it (`pubring.mix.<name>.minisig`).
+   - With `urls.pingers`, a signing pinger's copy counts in the merge only while that stored signature verifies with one of its keys, names the file, hasn't expired and isn't older than `urls.max_signature_age_hours` (yamn PR #74). A pinger whose new files keep failing drops out when its last signature runs out: with go-echolot's expiries (§9.5), after 48 h for `pubring.mix` and 6 h for `mlist2.txt`. If too few pingers are left for `key_quorum`, the current keyring is kept. A single pinger keeps its file, since nothing could replace it.
    - **Stats:** a remailer's stats must come from at least as many pingers as the key quorum: fresh ones first (mlist2 `Generated` within `stats.stale_hours`), older ones added, newest first, only when the fresh ones are too few (`keymgr/merge.go`).
 2. **Parse** each pubring with the existing `ImportPubring` rules (validity dates, keyid = hash) into a set of entries E_p = {(address, name, keyid, pk, version, caps, from, until)}.
 3. **Vote:** for each address a, group the entries by (keyid, pk, name). A group is *accepted* if its number of distinct pingers is ≥ Q, where Q = `min(key_quorum, number of usable pingers)`.
@@ -1025,7 +1026,7 @@ stats:
 
 **Status (2026-10-23):** yamn PR #72 checks go-echolot's signatures per §9.5. It is tested against `testdata/signing` (both signatures of each file) and end to end with go-echolot `c5214c7` (`keygen` + `sign`, then `yamn --refresh`).
 
-**Status (2026-10-25):** the "not done" items above are done, differently named: per-pinger `keys` (a list), `urls.pinger_keys` for a single pinger, `urls.require_signatures` (#72); the keyring's age is `urls.max_signature_age_hours` (default 48, #72), and the stats' age is `stats.stale_hours`. The config example above shows them.
+**Status (2026-10-25):** the "not done" items above are done, differently named: per-pinger `keys` (a list), `urls.pinger_keys` for a single pinger, `urls.require_signatures` (#72); the keyring's age is `urls.max_signature_age_hours` (default 48, #72), and the stats' age is `stats.stale_hours`. The config example above shows them. yamn PR #74 (`ffe4f4c`) leaves a signing pinger out of the merge once its stored signature is stale (step 1).
 
 ### 9.7 What yamn already does (2026-10-22)
 
