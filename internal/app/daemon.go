@@ -195,6 +195,13 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 		}
 	}()
 	d.markStart(d.clock.Now())
+	// pinger.pub at once, and the keyrings a pubring_debounce after the
+	// start instead of at the next pubring_check_interval, so a new
+	// pinger's files are there within minutes.
+	if err := d.signer.writePingerKey(d.cfg.Paths.ResultsDir); err != nil {
+		d.log.Error("pinger.pub not written", "err", err)
+	}
+	d.loop.Trigger(jobPubring)
 	d.SelfTest(ctx, d.clock.Now())
 	if len(d.cfg.Peers) > 0 {
 		d.loop.Trigger(jobHourlyNow) // the peers' first fetch, not at the next full hour

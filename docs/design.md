@@ -937,7 +937,7 @@ value   = 1*( %x21-7E )                ; printable ASCII, no space (":" allowed)
 
 **Keys:**
 - `go-echolot keygen` writes `signing.key_file` (default `<state_dir>/pinger.key`, mode 0600, never overwritten) in minisign's secret key format *without a password* (`minisign -G -W`): the daemon reads it unattended, and like ssh it refuses a key file others may read. minisign itself signs with it, and a key from `minisign -G -W` works in go-echolot.
-- `pinger.pub` (minisign's two-line public key format, `"Ed" || keyid || pk`) is published in `results_dir`. yamn's config takes only its base64 line.
+- `pinger.pub` (minisign's two-line public key format, `"Ed" || keyid || pk`) is published in `results_dir` when the daemon starts and with every keyring build; the keyrings are first built a `pubring_debounce` after the start. yamn's config takes only its base64 line.
 - The base64 line is shown on the index page.
 - The key and fingerprint are listed in the yamn repo (`doc/pingers.md`) through a reviewed PR. This is the trust anchor; HTTPS of the pinger is not.
 - Key rotation: the new `pinger.pub` is signed with the old key (`go-echolot sign --key old.key --valid 720h pinger.pub` → `pinger.pub.minisig`), and the doc PR is updated.
