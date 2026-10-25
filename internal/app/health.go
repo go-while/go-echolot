@@ -227,11 +227,11 @@ func (d *Daemon) HealthChecks(now time.Time) []health.Check {
 		health.Bounces(bounces, now),
 	}
 	for _, p := range []struct{ name, path string }{{"state", d.cfg.Paths.StateDir}, {"results", d.cfg.Paths.ResultsDir}} {
-		free, err := diskFree(p.path)
+		free, bytes, err := diskFree(p.path)
 		if err != nil {
 			d.log.Warn("free space unknown", "dir", p.path, "err", err)
 		}
-		checks = append(checks, health.Disk(p.name, free, err))
+		checks = append(checks, health.Disk(p.name, free, bytes, err))
 	}
 	for _, p := range d.cfg.Peers {
 		checks = append(checks, health.PeerCheck(p.Name, peers[p.Name], now))
