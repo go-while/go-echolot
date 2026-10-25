@@ -35,8 +35,13 @@ const (
 	KeyExpiryWarn = 24 * time.Hour // a published key expires sooner with no successor
 	BounceWindow  = 24 * time.Hour
 
-	DiskWarn = 0.10 // free share of the file system
-	DiskCrit = 0.02
+	// A file system is low on space when both its free share and its free
+	// bytes are under the limits: a percentage alone would warn on a
+	// large disk with plenty left, and go-echolot needs only megabytes.
+	DiskWarn      = 0.10 // free share of the file system
+	DiskCrit      = 0.02
+	DiskWarnBytes = 5 << 30
+	DiskCritBytes = 1 << 30
 
 	PeerInterval = time.Hour // how often the peers' files are fetched
 	PeerWarn     = 6 * time.Hour
@@ -273,21 +278,35 @@ func Bounces(last map[string]time.Time, now time.Time) Check {
 }
 
 // Disk checks the free space of the file system of a directory: free is
-// its free share, err the error finding it.  The path isn't shown:
-// status.json is public.
-func Disk(name string, free float64, err error) Check {
+// its free share, bytes the free bytes, err the error finding them.  It
+// warns when both are under DiskWarn and DiskWarnBytes (crit: DiskCrit
+// and DiskCritBytes).  The path isn't shown: status.json is public.
+func Disk(name string, free float64, bytes uint64, err error) Check {
 	name = "disk_" + name
 	if err != nil {
 		return check(name, Warn, "free space unknown (the log has why)")
 	}
 	l := OK
 	switch {
-	case free < DiskCrit:
+	case free < DiskCrit && bytes < DiskCritBytes:
 		l = Crit
-	case free < DiskWarn:
+	case free < DiskWarn && bytes < DiskWarnBytes:
 		l = Warn
 	}
-	return check(name, l, "%.1f%% free", free*100)
+	return check(name, l, "%.1f%% free (%s)", free*100, Bytes(bytes))
+}
+
+// Bytes formats n as "512 MiB" or "3.4 GiB".
+func Bytes(n uint64) string {
+	const mib, gib, tib = 1 << 20, 1 << 30, 1 << 40
+	switch {
+	case n >= tib:
+		return fmt.Sprintf("%.1f TiB", float64(n)/tib)
+	case n >= gib:
+		return fmt.Sprintf("%.1f GiB", float64(n)/gib)
+	default:
+		return fmt.Sprintf("%d MiB", n/mib)
+	}
 }
 
 // Peer is what the last fetches of a peer's files found.

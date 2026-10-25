@@ -1100,7 +1100,7 @@ Checks run every tick (`internal/health` has the thresholds, `internal/app/healt
 | yamn self-test (`yamn_selftest`) | — | fails |
 | Pending quarantine (`pending`) | any | — |
 | Bounces for a remailer (`bounces`) | any in 24 h | — |
-| Disk free in state/results (`disk_state`, `disk_results`) | < 10 % | < 2 % |
+| Disk free in state/results (`disk_state`, `disk_results`) | < 10 % and < 5 GiB | < 2 % and < 1 GiB |
 | **Peer pingers** (`peer_<name>`: `[peer <name>] mlist2`, fetched hourly) | `Generated` > 6 h old, or never fetched | > 24 h old |
 | Peers' key disagreement with us (`key_agreement`) | — (info) | — |
 

@@ -99,11 +99,21 @@ func TestOthers(t *testing.T) {
 		t.Errorf("an old bounce counts: %q", c.Detail)
 	}
 	want(t, Bounces(map[string]time.Time{"old@x": t0.Add(-25 * time.Hour)}, t0), OK, "none")
-	want(t, Disk("state", 0.5, nil), OK, "50.0% free")
-	want(t, Disk("state", 0.05, nil), Warn, "5.0%")
-	want(t, Disk("state", 0.01, nil), Crit, "1.0%")
-	want(t, Disk("state", 0, errors.New("gone")), Warn, "unknown")
-	if c := Disk("results", 1, nil); c.Name != "disk_results" {
+	const gib = 1 << 30
+	want(t, Disk("state", 0.5, 50*gib, nil), OK, "50.0% free (50.0 GiB)")
+	want(t, Disk("state", 0.05, 2*gib, nil), Warn, "5.0% free (2.0 GiB)")
+	want(t, Disk("state", 0.01, 500<<20, nil), Crit, "1.0% free (500 MiB)")
+	// A large disk: a low share with many bytes left is fine, and a
+	// warn-level share with under 1 GiB is only a warning.
+	want(t, Disk("state", 0.05, 100*gib, nil), OK, "5.0% free (100.0 GiB)")
+	want(t, Disk("state", 0.01, 3*gib, nil), Warn, "1.0% free (3.0 GiB)")
+	// A small disk: plenty of share, few bytes: fine.
+	want(t, Disk("state", 0.5, 500<<20, nil), OK, "50.0%")
+	want(t, Disk("state", 0, 0, errors.New("gone")), Warn, "unknown")
+	if Bytes(3<<40/2) != "1.5 TiB" {
+		t.Errorf("Bytes: %s", Bytes(3<<40/2))
+	}
+	if c := Disk("results", 1, 1, nil); c.Name != "disk_results" {
 		t.Errorf("name %q", c.Name)
 	}
 	want(t, PeerKeys(nil), OK, "agree")
