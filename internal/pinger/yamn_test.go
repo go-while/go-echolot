@@ -39,11 +39,17 @@ import (
 	"github.com/go-while/go-echolot/internal/replies"
 )
 
+// yamnBin returns $YAMN_BIN, or skips the test without it, or as root:
+// yamn refuses to run as root (go-while/yamn PR #73) and go-echolot never
+// asks it to.
 func yamnBin(t *testing.T) string {
 	t.Helper()
 	bin := os.Getenv("YAMN_BIN")
 	if bin == "" {
 		t.Skip("YAMN_BIN not set")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("yamn refuses to run as root; run the yamn tests as another user")
 	}
 	return bin
 }

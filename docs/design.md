@@ -1038,7 +1038,7 @@ These are merged in go-while/yamn and change what go-echolot has to do:
 
 ### 10.1 Deployment
 
-- **Account:** a dedicated user `pinger` with home `/var/lib/go-echolot`. The binaries `go-echolot` and `yamn` (fork ≥ c6d9a95) go in `/usr/local/bin`.
+- **Account:** a dedicated user `pinger` with home `/var/lib/go-echolot`. The binaries `go-echolot` and `yamn` (fork ≥ c6d9a95) go in `/usr/local/bin`. Never run go-echolot as root: yamn ≥ d5f9d63 (PR #73) refuses to run as root, so no ping could be built and `yamn_selftest` goes crit.
 - **Mail in.** No procmail is needed. Pick one:
   - (a) Postfix: `recipient_delimiter = +` plus `home_mailbox = Maildir/` (or a per-user `mailbox_command`-free local delivery). Everything for `pinger+*@domain` lands in `~pinger/Maildir/new`.
   - (b) Any MTA: `~pinger/.forward` = `"|/usr/local/bin/go-echolot deliver"`. `deliver` writes into the Maildir atomically and records `ORIGINAL_RECIPIENT`/`EXTENSION` from Postfix's environment as `X-Original-To`.
@@ -1413,6 +1413,7 @@ Zax (Steve Crook) posted it to alt.privacy.anon-server on 2019-06-02, Message-ID
   - #64 (per-domain MX delivery: pings to exits with several recipients are no longer affected);
   - #65/#66 (`mail.tor_socks`: .onion recipients through Tor; a pinger can use it for .onion remailer addresses);
   - #67 (remailer self-check of published keys).
+  - #72 (verifies go-echolot's signatures, §9.5), #73 (yamn refuses to run as root, except `-V`/`--version`; master `d5f9d63`).
 - **The yamn binary** that the Encoder runs is a separate program, not a Go dependency of go-echolot.
 - **Encoder note:** the yamn client go-echolot runs (`-m --stdout`) only needs a one-key pubring; the remailer self-check (#67) runs only in remailer mode, so the pinger's private yamn config isn't affected.
 

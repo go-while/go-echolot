@@ -63,7 +63,8 @@ Go 1.27.3 or later:
 ```sh
 go build ./cmd/go-echolot
 go test -race ./...
-# with the real yamn binary (client and remailer round trips):
+# with the real yamn binary (client and remailer round trips; not as root,
+# which yamn refuses, so these tests skip as root):
 (cd ../yamn && go build -o /tmp/yamn .) && YAMN_BIN=/tmp/yamn go test -run Yamn ./internal/pinger ./internal/app
 # against the reference minisign tool (Debian: apt install minisign):
 MINISIGN_BIN=$(command -v minisign) go test -run Minisign ./internal/minisign
@@ -71,7 +72,7 @@ MINISIGN_BIN=$(command -v minisign) go test -run Minisign ./internal/minisign
 
 ## Docker
 
-The `Dockerfile` builds go-echolot and yamn (a fixed commit of go-while/yamn, `--build-arg YAMN_REF=` to change it) into a ~20 MB image with no shell, running as uid 65532 unless `--user` says otherwise. Only Docker Hub images are pulled. It builds with Docker and with podman.
+The `Dockerfile` builds go-echolot and yamn (a fixed commit of go-while/yamn, `--build-arg YAMN_REF=` to change it) into a ~20 MB image with no shell, running as uid 65532 unless `--user` says otherwise. Not as root: yamn refuses to run as root (yamn PR #73), on a host as in a container. Only Docker Hub images are pulled. It builds with Docker and with podman.
 
 ```sh
 docker build --build-arg VERSION="$(git describe --always --dirty)" -t go-echolot .
