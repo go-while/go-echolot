@@ -48,7 +48,7 @@ func yamnBin(t *testing.T) string {
 	if bin == "" {
 		t.Skip("YAMN_BIN not set")
 	}
-	if os.Geteuid() == 0 {
+	if os.Getuid() == 0 || os.Geteuid() == 0 { // yamn checks both
 		t.Skip("yamn refuses to run as root; run the yamn tests as another user")
 	}
 	return bin
