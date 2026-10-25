@@ -30,6 +30,7 @@ A pinger:
 ## Repository contents
 
 - `cmd/go-echolot/`: the command: `run`, `deliver`, `add`/`delete`/`enable`/`disable`/`set`, `approve`/`reject`, `getkeyconf`, `buildkeys`, `sendpings`, `sendchainpings`, `buildstats`, `status`, `keys`, `import-echolot`, `keygen`/`sign`/`verify`, `check`, `dumpconf`, `version` (`go-echolot help`). Commands that change the state go to the running daemon through a spool and SIGHUP.
+- `cmd/mlistdiff/`: compares two pingers' `mlist2.txt` and `pubring.mix` for the side-by-side run (design §11-6): per remailer the uptime and latency difference and whether the keyids match, rows outside the bounds marked; with `-state`, run hourly, which pinger listed a new key first. `mlistdiff /var/lib/go-echolot/results https://www.mixmin.net/yamn/` (exit 0 all within the bounds, 1 some outside, 2 an error).
 - `internal/app/`: the daemon (jobs, reply handling, health and peer checks), the operator commands, the spool and the thesaurus of raw replies.
 - `internal/mailin/`, `internal/mailout/`: Maildir intake and `deliver`; sendmail, SMTP (verified TLS, per-command timeouts) and Tor for .onion remailers.
 - `internal/sched/`, `internal/sdnotify/`: the slot scheduler and job loop; systemd notification and watchdog.
