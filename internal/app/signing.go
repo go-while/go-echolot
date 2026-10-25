@@ -188,10 +188,14 @@ func (s *signer) sign(now time.Time) output.SignFunc {
 	}
 }
 
-// writePingerKey publishes pinger.pub in the results directory.
+// writePingerKey publishes pinger.pub in the results directory, making
+// the directory if needed (at the start it may not exist yet).
 func (s *signer) writePingerKey(dir string) error {
 	if s == nil {
 		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
 	}
 	return output.WritePingerKey(dir, s.pub.File())
 }

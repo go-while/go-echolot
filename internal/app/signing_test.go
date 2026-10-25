@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-while/go-echolot/internal/minisign"
+	"github.com/go-while/go-echolot/internal/sched"
 	"github.com/go-while/go-echolot/internal/store"
 )
 
@@ -228,5 +230,32 @@ func TestNewKeyStartsAfresh(t *testing.T) {
 	h.d.BuildStats(h.clock.Now())
 	if got := h.verified(pub, "mlist2.txt").Timestamp; !got.Equal(h.clock.Now()) {
 		t.Errorf("new key signed at %s, want the clock's %s", got, h.clock.Now())
+	}
+}
+
+// TestPingerKeyAtStart: pinger.pub is published when the daemon starts,
+// not only with the first keyring build.
+func TestPingerKeyAtStart(t *testing.T) {
+	h := newHarness(t, false)
+	pub := h.withSigning()
+	h.d.clock = sched.RealClock()
+	h.d.loop = sched.New(h.d.clock, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- h.d.Run(ctx, nil) }()
+	path := filepath.Join(h.cfg.Paths.ResultsDir, "pinger.pub")
+	var b []byte
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if b, _ = os.ReadFile(path); b != nil {
+			break
+		}
+	}
+	cancel()
+	<-done
+	if string(b) != string(pub.File()) {
+		t.Errorf("pinger.pub after the start: %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(h.cfg.Paths.ResultsDir, "pubring.mix")); err == nil {
+		t.Error("pubring.mix written at once; it should wait for pubring_debounce")
 	}
 }
