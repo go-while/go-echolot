@@ -945,17 +945,16 @@ value   = 1*( %x21-7E )                ; printable ASCII, no space (":" allowed)
 
 **Test vectors** (`testdata/signing/`, shared with yamn's verifier tests): a test key, `pinger.pub`, `pubring.mix` and `mlist2.txt`, each signed by go-echolot and by the reference minisign 0.12 tool with the same key and trusted comment. CI installs Debian's `minisign`, verifies go-echolot's signatures with `minisign -Vm`, and runs round trips both ways with new keys (`MINISIGN_BIN`), so the format is proven against the reference tool, not only our own code.
 
-**yamn client verification** (proposed config, single pinger):
+**yamn client verification** (single pinger; as implemented in yamn PR #72, which always fetches `<url>.minisig`):
 
 ```yaml
 urls:
   fetch: true
   pubring: https://www.mixmin.net/yamn/pubring.mix
   mlist2:  https://www.mixmin.net/yamn/mlist2.txt
-  signature_suffix: ".minisig"          # fetched next to each file
-  pinger_keys: ["RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3"]   # minisign public keys
-  require_signatures: true              # reject unsigned/badly signed downloads
-  max_signature_age_hours: 48
+  pinger_keys: ["RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3"]   # minisign public keys; if set, both files must be signed by one of them
+  require_signatures: true              # refuse a config in which a pinger has no keys
+  max_signature_age_hours: 48           # 0: only the expiry counts
 ```
 
 Download rule in `httpGet`/`timedURLFetch` (`Y:utils.go:142-167`, `Y:client.go:379-400`). A file is accepted (written atomically) only if:
@@ -969,7 +968,7 @@ Otherwise the previous local copy is kept and a warning is logged. A file whose 
 
 ### 9.6 Client-side multi-pinger cross-check (spec for a yamn PR)
 
-**Config:**
+**Config,** as yamn implements it (go-while/yamn `d5f9d63`; `yamn(1)`, "Pinger signatures"). The first draft of this spec had a per-pinger `key:` and `max_stats_age_hours`/`max_pubring_age_hours`; yamn does it with the keys below.
 
 ```yaml
 urls:
@@ -978,24 +977,26 @@ urls:
     - name: mixmin
       pubring: https://www.mixmin.net/yamn/pubring.mix
       mlist2:  https://www.mixmin.net/yamn/mlist2.txt
-      key: "RWQ…"                       # optional minisign key; required if require_signatures
+      keys: ["RWQ…"]                    # minisign public keys; if set, both files must be signed by one of them
     - name: victor
       pubring: https://echolot.virebent.art/pubring.mix
       mlist2:  https://echolot.virebent.art/mlist2.txt
     - name: frell
       pubring: http://echolot.theremailer.net/yamn/pubring.mix
       mlist2:  http://echolot.theremailer.net/yamn/mlist2.txt
-  key_quorum: 2            # N: pingers that must agree on a key
-  max_stats_age_hours: 24  # ignore an mlist2 whose Generated is older
-  max_pubring_age_hours: 48  # needs a signature timestamp or HTTP Last-Modified; else not applied
-  require_signatures: false
+  key_quorum: 2                 # pingers that must agree on a key
+  pinger_keys: []               # single pinger (urls.pubring/urls.mlist2) only: its minisign keys; must stay empty with pingers
+  require_signatures: false     # refuse a config in which a pinger has no keys
+  max_signature_age_hours: 48   # refuse a signature older than this (0: only its expiry counts)
+stats:
+  stale_hours: 24               # an mlist2 older than this is stale (see step 1)
 ```
 
 **Algorithm.** Run at the existing hourly fetch (`Y:server.go:140-162`) and client fetch (`Y:client.go:133-138`).
 
 1. **Fetch** each pinger's files into `<files.pubring>.<name>` and `<files.mlist2>.<name>`, with today's validation (`CheckPubring`/`CheckStats`) and signature checks. A failed fetch keeps that pinger's previous copy.
-   - A pinger is **usable for keys** if its pubring is present and not older than `max_pubring_age_hours` (where measurable).
-   - A pinger is **usable for stats** if its mlist2 `Generated` is within `max_stats_age_hours`.
+   - **Keys:** a pinger's last accepted pubring counts. For a pinger with keys, a download must verify and be no older than `urls.max_signature_age_hours` (the signature's `timestamp`, §9.5) to replace it; a refused download keeps the previous copy (`pubring.mix.<name>`). So a pinger whose new files keep failing still votes with its last accepted pubring, bounded by the keys' own dates and the quorum.
+   - **Stats:** a remailer's stats must come from at least as many pingers as the key quorum: fresh ones first (mlist2 `Generated` within `stats.stale_hours`), older ones added, newest first, only when the fresh ones are too few (`keymgr/merge.go`).
 2. **Parse** each pubring with the existing `ImportPubring` rules (validity dates, keyid = hash) into a set of entries E_p = {(address, name, keyid, pk, version, caps, from, until)}.
 3. **Vote:** for each address a, group the entries by (keyid, pk, name). A group is *accepted* if its number of distinct pingers is ≥ Q, where Q = `min(key_quorum, number of usable pingers)`.
    - If Q < `key_quorum`, log a warning. If there are 0 usable pingers, keep the existing merged files.
@@ -1023,6 +1024,8 @@ urls:
 **Status (2026-10-22):** steps 1–7 are done in yamn (PR #30, `de59490`, plus #52 for the stats quorum); `urls.pingers` entries have `name`, `pubring`, `mlist2`. Not done: the per-pinger `key` and `require_signatures`, and `max_stats_age_hours`/`max_pubring_age_hours` (yamn uses `stats.stale_hours`). Those come with signed outputs (§9.5), as a yamn PR in phase 4.
 
 **Status (2026-10-23):** yamn PR #72 checks go-echolot's signatures per §9.5. It is tested against `testdata/signing` (both signatures of each file) and end to end with go-echolot `c5214c7` (`keygen` + `sign`, then `yamn --refresh`).
+
+**Status (2026-10-25):** the "not done" items above are done, differently named: per-pinger `keys` (a list), `urls.pinger_keys` for a single pinger, `urls.require_signatures` (#72); the keyring's age is `urls.max_signature_age_hours` (default 48, #72), and the stats' age is `stats.stale_hours`. The config example above shows them.
 
 ### 9.7 What yamn already does (2026-10-22)
 
