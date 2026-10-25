@@ -985,7 +985,7 @@ urls:
       pubring: http://echolot.theremailer.net/yamn/pubring.mix
       mlist2:  http://echolot.theremailer.net/yamn/mlist2.txt
   key_quorum: 2                 # pingers that must agree on a key
-  pinger_keys: []               # single pinger (urls.pubring/urls.mlist2): its minisign keys
+  pinger_keys: []               # single pinger (urls.pubring/urls.mlist2) only: its minisign keys; must stay empty with pingers
   require_signatures: false     # refuse a config in which a pinger has no keys
   max_signature_age_hours: 48   # refuse a signature older than this (0: only its expiry counts)
 stats:
@@ -995,8 +995,8 @@ stats:
 **Algorithm.** Run at the existing hourly fetch (`Y:server.go:140-162`) and client fetch (`Y:client.go:133-138`).
 
 1. **Fetch** each pinger's files into `<files.pubring>.<name>` and `<files.mlist2>.<name>`, with today's validation (`CheckPubring`/`CheckStats`) and signature checks. A failed fetch keeps that pinger's previous copy.
-   - A pinger is **usable for keys** if its pubring is present and, when it has keys, its signature verifies and is no older than `urls.max_signature_age_hours` (the signature's `timestamp`, §9.5). Unsigned files have no measurable age.
-   - **Stats freshness** is `stats.stale_hours` on the mlist2 `Generated`: stale pingers only count for a remailer when not enough fresh ones list it, newest first (`keymgr/merge.go`).
+   - **Keys:** a pinger's last accepted pubring counts. For a pinger with keys, a download must verify and be no older than `urls.max_signature_age_hours` (the signature's `timestamp`, §9.5) to replace it; a refused download keeps the previous copy (`pubring.mix.<name>`). So a pinger whose new files keep failing still votes with its last accepted pubring, bounded by the keys' own dates and the quorum.
+   - **Stats:** a remailer's stats must come from at least as many pingers as the key quorum: fresh ones first (mlist2 `Generated` within `stats.stale_hours`), older ones added, newest first, only when the fresh ones are too few (`keymgr/merge.go`).
 2. **Parse** each pubring with the existing `ImportPubring` rules (validity dates, keyid = hash) into a set of entries E_p = {(address, name, keyid, pk, version, caps, from, until)}.
 3. **Vote:** for each address a, group the entries by (keyid, pk, name). A group is *accepted* if its number of distinct pingers is ≥ Q, where Q = `min(key_quorum, number of usable pingers)`.
    - If Q < `key_quorum`, log a warning. If there are 0 usable pingers, keep the existing merged files.
