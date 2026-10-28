@@ -1302,6 +1302,9 @@ Structured `log/slog` with text output, to stderr (journald) or a file; levels d
    - Compare hourly: key sets and the time each pingers picked up rotations; reliability (expect |Δ| ≤ 2 points except after rotations, where ours keeps the history); latency (expect within ±10 %).
    - Also run once with `compat.drop_pings_with_key: true` and `latency_from: processing`, which should track mixmin closely.
    - `cmd/mlistdiff` prints the per-remailer deltas (uptime points, latency percent, keyids), marks the rows outside the bounds (`-rel 2`, `-lat 10` with `-latmin 2m`, so a 1-minute step at small latencies isn't flagged), and with `-state` records when each pinger first listed each key. Note: two Echolot pingers (mixmin, victor, 2026-10-25) already differ by 17–38 % in latency on some remailers, so `-lat` may need widening.
+   - **Compare only full windows.** Latency and reliability are medians and averages over the last 12 days. A pinger started fresh covers fewer days until its window is full, so its overall figures differ from a peer's even when they measure the same thing; compare the per-day history columns for the days both cover instead.
+     - Seen on mbox-mo1 (fresh start 2026-10-25): on 10-28 our latencies were 3–13 min lower than mixmin's, virebent's and theremailer's on all 6 remailers, while for the 3 days both cover the per-day columns agreed (e.g. `000` for yamn). The peers' medians included 9 slower days before our start. Overall figures are comparable from about 11-06.
+   - On mbox-mo1, `/etc/cron.d/mlistdiff` runs `mlistdiff -state` hourly against each peer and appends to `/var/log/mlistdiff/<peer>.log`, so rotation pickup is recorded as it happens.
 
 ---
 
