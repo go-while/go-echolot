@@ -193,15 +193,23 @@ func TestKnownKey(t *testing.T) {
 	if !hasResult(res, id, Seen, "") || k.Sightings != 1 || !k.LastSeen.Equal(seen.Add(20*time.Minute)) {
 		t.Errorf("20 min: %v %+v", res, k)
 	}
-	// 29 min after that: still one
-	apply(st, rem.Address, seen.Add(49*time.Minute), yamnLine)
+	// 29 min after the first: still one
+	apply(st, rem.Address, seen.Add(29*time.Minute), yamnLine)
 	if k.Sightings != 1 {
-		t.Errorf("49 min: %d sightings", k.Sightings)
+		t.Errorf("29 min: %d sightings", k.Sightings)
 	}
-	// 30 min after the last: two
-	apply(st, rem.Address, seen.Add(79*time.Minute), yamnLine)
-	if k.Sightings != 2 || !k.LastReceived.Equal(seen.Add(84*time.Minute)) {
-		t.Errorf("79 min: %+v", k)
+	// 30 min after the first counted one, though only 1 min after the last
+	// reply: two
+	apply(st, rem.Address, seen.Add(30*time.Minute), yamnLine)
+	if k.Sightings != 2 || !k.SightedAt.Equal(seen.Add(30*time.Minute)) {
+		t.Errorf("30 min: %+v", k)
+	}
+	// replies every 10 min: one sighting per 30 min
+	for m := 40; m <= 90; m += 10 {
+		apply(st, rem.Address, seen.Add(time.Duration(m)*time.Minute), yamnLine)
+	}
+	if k.Sightings != 4 || !k.LastReceived.Equal(seen.Add(95*time.Minute)) {
+		t.Errorf("90 min: %+v", k)
 	}
 
 	// version and caps follow yamn's config
@@ -263,7 +271,7 @@ func TestNickChangeSightings(t *testing.T) {
 	if pc == nil || pc.Sightings != 1 || !pc.LastSeen.Equal(tok.Add(10*time.Minute)) {
 		t.Fatalf("%+v", pc)
 	}
-	apply(st, "yamn@mixmin.net", tok.Add(time.Hour), line)
+	apply(st, "yamn@mixmin.net", tok.Add(30*time.Minute), line) // 20 min after the last reply, 30 after the first
 	if pc.Sightings != 2 {
 		t.Errorf("%+v", pc)
 	}
@@ -404,5 +412,26 @@ func TestApplyConfReply(t *testing.T) {
 	}
 	if ApplyConfReply(st, rem, nil, now, now, now, cfg) != nil {
 		t.Error("nil conf")
+	}
+}
+
+func TestSightingsFrequentReplies(t *testing.T) {
+	// a quarantined key in replies every 5 min, as on the testnet: one
+	// sighting per 30 min, not stuck at one
+	st := pinned(now.Add(-3 * time.Hour))
+	tok := now.Add(-2 * time.Hour)
+	for m := 0; m <= 60; m += 5 {
+		apply(st, "yamn@virebent.art", tok.Add(time.Duration(m)*time.Minute), victorNext)
+	}
+	k := st.Remailers["yamn@virebent.art"].Keys[pk(victorNext).KeyID]
+	if k.Sightings != 3 {
+		t.Errorf("%d sightings, want 3", k.Sightings)
+	}
+
+	// state written before SightedAt: the first sighting is FirstSeen
+	k.Sightings, k.SightedAt, k.LastSeen = 1, time.Time{}, tok.Add(60*time.Minute)
+	apply(st, "yamn@virebent.art", tok.Add(65*time.Minute), victorNext)
+	if k.Sightings != 2 || !k.SightedAt.Equal(tok.Add(65*time.Minute)) {
+		t.Errorf("old state: %+v", k)
 	}
 }

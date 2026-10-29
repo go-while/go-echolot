@@ -143,7 +143,8 @@ type Key struct {
 	LastSeen     time.Time  `json:"last_seen"`  // token time of the last reply listing it
 	LastReceived time.Time  `json:"last_received"`
 	Sightings    int        `json:"sightings"`
-	ProvenAt     time.Time  `json:"proven_at"` // first returned ping to this key; zero = not yet (§9.2)
+	SightedAt    time.Time  `json:"sighted_at,omitempty"` // token time of the last counted sighting; zero in old state
+	ProvenAt     time.Time  `json:"proven_at"`            // first returned ping to this key; zero = not yet (§9.2)
 	State        string     `json:"state"`
 }
 
@@ -177,10 +178,11 @@ type PendingChange struct {
 	Old       string    `json:"old"`
 	New       string    `json:"new"` // keyid, nick or address
 	Since     time.Time `json:"since"`
-	Sightings int       `json:"sightings,omitempty"` // nick and address changes
-	LastSeen  time.Time `json:"last_seen"`           // token time of the last reply showing New
-	OldSeen   time.Time `json:"old_seen"`            // token time of the last reply showing Old
-	Rejected  bool      `json:"rejected,omitempty"`  // by the operator
+	Sightings int       `json:"sightings,omitempty"`  // nick and address changes
+	SightedAt time.Time `json:"sighted_at,omitempty"` // token time of the last counted sighting; zero in old state
+	LastSeen  time.Time `json:"last_seen"`            // token time of the last reply showing New
+	OldSeen   time.Time `json:"old_seen"`             // token time of the last reply showing Old
+	Rejected  bool      `json:"rejected,omitempty"`   // by the operator
 }
 
 // Suggestion is a reason to add an address, from another remailer's
