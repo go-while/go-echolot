@@ -97,7 +97,7 @@ func (r *reply) key(pk replies.ParsedKey) bool {
 	k := &store.Key{
 		KeyID: pk.KeyID, Nick: pk.Nick, Address: pk.Address, Version: pk.Version, Caps: pk.Caps,
 		Created: pk.Created, Expires: pk.Expires, PK: store.PublicKey(pk.PK),
-		FirstSeen: r.tok, LastSeen: r.tok, LastReceived: r.received, Sightings: 1,
+		FirstSeen: r.tok, LastSeen: r.tok, LastReceived: r.received, Sightings: 1, SightedAt: r.tok,
 		State: store.KeyStateQuarantined,
 	}
 	if rem.Keys == nil {
@@ -180,11 +180,15 @@ func (r *reply) knownKey(k *store.Key, pk replies.ParsedKey) bool {
 }
 
 // seen records a sighting of k: one per token at least SightingGap after
-// the last one (§9.2, "distinct tokens >= 30 min apart").
+// the last counted one (§9.2, "distinct tokens >= 30 min apart").
 func (r *reply) seen(k *store.Key) {
-	if !r.tok.Before(k.LastSeen.Add(SightingGap)) {
-		k.Sightings++
+	if k.SightedAt.IsZero() { // state written before SightedAt
+		k.SightedAt = k.LastSeen
+		if k.Sightings <= 1 {
+			k.SightedAt = k.FirstSeen
+		}
 	}
+	sighting(&k.Sightings, &k.SightedAt, r.tok)
 	if r.tok.After(k.LastSeen) {
 		k.LastSeen = r.tok
 	}
@@ -228,16 +232,20 @@ func (r *reply) pend(kind, old, new string) *store.PendingChange {
 			continue
 		}
 		if kind != store.PendingKeyChange && r.tok.After(pc.LastSeen) {
-			if !r.tok.Before(pc.LastSeen.Add(SightingGap)) {
-				pc.Sightings++
+			if pc.SightedAt.IsZero() { // state written before SightedAt
+				pc.SightedAt = pc.LastSeen
+				if pc.Sightings <= 1 {
+					pc.SightedAt = pc.Since
+				}
 			}
+			sighting(&pc.Sightings, &pc.SightedAt, r.tok)
 			pc.LastSeen = r.tok
 		}
 		return pc
 	}
 	pc := store.PendingChange{Address: r.rem.Address, Kind: kind, Old: old, New: new, Since: r.now}
 	if kind != store.PendingKeyChange {
-		pc.Sightings, pc.LastSeen = 1, r.tok
+		pc.Sightings, pc.LastSeen, pc.SightedAt = 1, r.tok, r.tok
 	}
 	r.st.Pending = append(r.st.Pending, pc)
 	return &r.st.Pending[len(r.st.Pending)-1]
@@ -335,4 +343,15 @@ func (r *reply) conf(conf *replies.ConfReply) {
 	}
 	rem.Conf = c
 	r.add("", Accepted, "conf")
+}
+
+// sighting counts tok as a new sighting if it is at least SightingGap after
+// the last counted one, *at.  The gap is not measured from the last reply:
+// a remailer asked more often than every SightingGap would never get a
+// second sighting (seen on the testnet, 2026-10-29).
+func sighting(n *int, at *time.Time, tok time.Time) {
+	if !tok.Before(at.Add(SightingGap)) {
+		*n++
+		*at = tok
+	}
 }
