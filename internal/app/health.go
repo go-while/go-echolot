@@ -60,6 +60,12 @@ type healthState struct {
 	// (a full disk) doesn't make every tick mail again.
 	notified    map[string]health.Notice
 	notifyAfter time.Time // no mail before this: the last one failed
+
+	// dailySent is when the last daily status mail went out: loaded
+	// from state.json at the first check, then kept here, like notified.
+	dailySent   time.Time
+	dailyLoaded bool
+	dailyAfter  time.Time // no daily mail before this: the last one failed
 }
 
 func (h *healthState) scanned(at time.Time) {
@@ -121,6 +127,7 @@ func (d *Daemon) Health(ctx context.Context, now time.Time) *health.Report {
 		d.log.Error("status files not written", "err", err)
 	}
 	d.notify(ctx, r, now)
+	d.dailyStatus(ctx, r, now)
 	return r
 }
 
@@ -314,15 +321,7 @@ func (d *Daemon) notify(ctx context.Context, r *health.Report, now time.Time) {
 		return
 	}
 	subject, body := health.Digest(r, due)
-	from := d.cfg.Pinger.Address
-	_, domain, _ := strings.Cut(from, "@")
-	data, err := mailout.ComposeRequest(from, to, ascii(subject), []byte(ascii(string(body))), now, domain)
-	if err == nil {
-		ctx, cancel := context.WithTimeout(ctx, notifyTime)
-		err = d.notifier.Send(ctx, mailout.Mail{EnvelopeFrom: from, Rcpt: []string{to}, Data: data})
-		cancel()
-	}
-	if err != nil {
+	if err := d.mailOperator(ctx, subject, body, now); err != nil {
 		h.mu.Lock()
 		h.notifyAfter = now.Add(notifyRetry)
 		h.mu.Unlock()
@@ -345,12 +344,99 @@ func (d *Daemon) notify(ctx context.Context, r *health.Report, now time.Time) {
 	}
 	h.mu.Unlock()
 	d.log.Info("health mail sent", "to", to, "checks", strings.Join(names, " "))
-	err = d.st.Update(func(st *store.State) error {
+	err := d.st.Update(func(st *store.State) error {
 		st.HealthState().Notified = saved
 		return nil
 	})
 	if err != nil {
 		d.log.Error("health mail not recorded in state.json", "err", err)
+	}
+}
+
+// mailOperator sends a health mail to health.notify, from pinger.address,
+// within notifyTime.
+func (d *Daemon) mailOperator(ctx context.Context, subject string, body []byte, now time.Time) error {
+	to, from := d.cfg.Health.Notify, d.cfg.Pinger.Address
+	_, domain, _ := strings.Cut(from, "@")
+	data, err := mailout.ComposeRequest(from, to, ascii(subject), []byte(ascii(string(body))), now, domain)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, notifyTime)
+	defer cancel()
+	return d.notifier.Send(ctx, mailout.Mail{EnvelopeFrom: from, Rcpt: []string{to}, Data: data})
+}
+
+// dailyStatus mails r to health.notify once a day at
+// health.daily_status_mail, so the operator knows the pinger still runs
+// (design §10.2).  A daemon that was down at that time mails once it is
+// back; a new one (no daily_sent in state.json) waits for the next time
+// after its start.  A failed send is tried again after notifyRetry.
+func (d *Daemon) dailyStatus(ctx context.Context, r *health.Report, now time.Time) {
+	at, ok, _ := d.cfg.Health.DailyStatus()
+	if d.cfg.Health.Notify == "" || !ok {
+		return
+	}
+	h := &d.health
+	h.mu.Lock()
+	if !h.dailyLoaded {
+		h.dailyLoaded = true
+		d.st.View(func(st *store.State) {
+			if st.Health != nil {
+				h.dailySent = st.Health.DailySent
+			}
+		})
+	}
+	last, started := h.dailySent, h.started
+	if last.IsZero() {
+		last = started
+	}
+	due := lastDaily(now, at).After(last) && !now.Before(h.dailyAfter)
+	h.mu.Unlock()
+	if !due {
+		return
+	}
+	subject, body := health.Daily(r, started)
+	if err := d.mailOperator(ctx, subject, body, now); err != nil {
+		h.mu.Lock()
+		h.dailyAfter = now.Add(notifyRetry)
+		h.mu.Unlock()
+		d.log.Error("daily status mail not sent; trying again later", "to", d.cfg.Health.Notify, "retry", notifyRetry, "err", err)
+		return
+	}
+	h.mu.Lock()
+	h.dailySent = now.UTC()
+	h.mu.Unlock()
+	d.log.Info("daily status mail sent", "to", d.cfg.Health.Notify, "state", r.State.String())
+	if err := d.st.Update(func(st *store.State) error {
+		st.HealthState().DailySent = now.UTC()
+		return nil
+	}); err != nil {
+		d.log.Error("daily status mail not recorded in state.json", "err", err)
+	}
+}
+
+// lastDaily is the latest time of day at (UTC) not after now.
+func lastDaily(now time.Time, at time.Duration) time.Time {
+	u := now.UTC()
+	t := time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC).Add(at)
+	if t.After(u) {
+		t = t.AddDate(0, 0, -1)
+	}
+	return t
+}
+
+// warnDailyStatus logs whether the daily status mail is on, as a warning
+// when it is off: at the start and at each SIGHUP.
+func (d *Daemon) warnDailyStatus() {
+	at, ok, _ := d.cfg.Health.DailyStatus()
+	switch {
+	case !ok:
+		d.log.Warn("daily status mail is off: set health.daily_status_mail to \"minute [hour]\" (UTC), e.g. \"15 03\"")
+	case d.cfg.Health.Notify == "":
+		d.log.Warn("daily status mail is off: health.daily_status_mail is set, but health.notify is empty")
+	default:
+		d.log.Info("daily status mail", "to", d.cfg.Health.Notify, "at", fmt.Sprintf("%02d:%02d UTC", int(at.Hours()), int(at.Minutes())%60))
 	}
 }
 

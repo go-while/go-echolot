@@ -404,3 +404,92 @@ func TestPeerFuture(t *testing.T) {
 	h.d.CheckPeers(context.Background(), h.clock.Now())
 	h.wantCheck("peer_ahead", health.Crit, "generated 25h ago")
 }
+
+func TestHealthDailyStatus(t *testing.T) {
+	h := newHarness(t, false) // starts 2026-10-22 00:00 UTC
+	ctx := context.Background()
+	daily := func() []mailout.Mail {
+		var ms []mailout.Mail
+		for _, m := range h.mailer.take() {
+			if m.Rcpt[0] == "ops@example.org" && strings.Contains(string(m.Data), "Subject: go-echolot daily status: ") {
+				ms = append(ms, m)
+			}
+		}
+		return ms
+	}
+	tick := func(d time.Duration) []mailout.Mail {
+		h.t.Helper()
+		h.clock.Advance(d)
+		h.d.Health(ctx, h.clock.Now())
+		return daily()
+	}
+
+	// Unset: off, with a warning; set without notify: off, with a warning.
+	h.d.warnDailyStatus()
+	if !strings.Contains(h.log.String(), "daily status mail is off: set health.daily_status_mail") {
+		t.Errorf("no warning without daily_status_mail:\n%s", h.log)
+	}
+	h.cfg.Health.DailyStatusMail = "15"
+	h.restart()
+	h.d.warnDailyStatus()
+	if !strings.Contains(h.log.String(), "health.notify is empty") {
+		t.Errorf("no warning without notify:\n%s", h.log)
+	}
+	if ms := tick(4 * time.Hour); len(ms) != 0 {
+		t.Fatalf("daily mail without notify:\n%s", ms[0].Data)
+	}
+
+	// On at 03:15 (the default hour), started at 04:00: the first mail is
+	// the next day at 03:15, not at once.
+	h.cfg.Health.Notify = "ops@example.org"
+	h.restart()
+	h.d.warnDailyStatus()
+	if !strings.Contains(h.log.String(), "at=\"03:15 UTC\"") {
+		t.Errorf("start log doesn't name the time:\n%s", h.log)
+	}
+	if ms := tick(0); len(ms) != 0 {
+		t.Fatalf("daily mail at the start:\n%s", ms[0].Data)
+	}
+	if ms := tick(23*time.Hour + 14*time.Minute); len(ms) != 0 { // 03:14
+		t.Fatalf("daily mail before 03:15:\n%s", ms[0].Data)
+	}
+	ms := tick(time.Minute) // 03:15
+	if len(ms) != 1 || !strings.Contains(string(ms[0].Data), "running since 2026-10-22T04:00:00Z") ||
+		!strings.Contains(string(ms[0].Data), "The whole status") || ms[0].EnvelopeFrom != "pinger@pinger.example.org" {
+		t.Fatalf("daily mails: %d %s", len(ms), ms)
+	}
+	if sent, _, _ := h.d.health.sends.Counts(h.clock.Now()); sent != 0 {
+		t.Errorf("the daily mail counts as a send: %d", sent)
+	}
+	if ms := tick(2 * time.Minute); len(ms) != 0 {
+		t.Errorf("daily mail sent again:\n%s", ms[0].Data)
+	}
+	// A restart doesn't send it again.
+	h.restart()
+	if ms := tick(time.Minute); len(ms) != 0 {
+		t.Errorf("daily mail sent again after a restart:\n%s", ms[0].Data)
+	}
+
+	// Down over 03:15 the next day: sent once it is back.
+	h.clock.Advance(24 * time.Hour) // 03:18 on 10-24
+	h.restart()
+	if ms := tick(0); len(ms) != 1 {
+		t.Errorf("no daily mail after the downtime: %d", len(ms))
+	}
+
+	// A failed send is tried again 30 minutes later, not at every tick.
+	h.mailer.fail = errors.New("sendmail: exit status 75")
+	if ms := tick(24 * time.Hour); len(ms) != 0 { // 03:18 on 10-25
+		t.Fatalf("failed mail delivered:\n%s", ms[0].Data)
+	}
+	if !strings.Contains(h.log.String(), "daily status mail not sent") {
+		t.Error("the failed daily mail isn't logged")
+	}
+	h.mailer.fail = nil
+	if ms := tick(10 * time.Minute); len(ms) != 0 {
+		t.Errorf("retried at once:\n%s", ms[0].Data)
+	}
+	if ms := tick(20 * time.Minute); len(ms) != 1 {
+		t.Errorf("not retried after 30 minutes: %d", len(ms))
+	}
+}

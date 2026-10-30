@@ -175,7 +175,10 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 	d.loop.Debounced(jobPubring, s.PubringDebounce, func(ctx context.Context, at time.Time) { d.BuildKeys(at) })
 	d.loop.Every(jobDaily, 24*time.Hour, func(ctx context.Context, at time.Time) { d.Daily(at) })
 	d.loop.Every(jobCommands, commandsInterval, func(ctx context.Context, at time.Time) { d.Commands(ctx, at) })
-	d.loop.Debounced("hup", commandsDelay, func(ctx context.Context, at time.Time) { d.Commands(ctx, at) })
+	d.loop.Debounced("hup", commandsDelay, func(ctx context.Context, at time.Time) {
+		d.warnDailyStatus()
+		d.Commands(ctx, at)
+	})
 	d.loop.Every(jobHealth, s.Tick, func(ctx context.Context, _ time.Time) { d.Health(ctx, d.clock.Now()) })
 	d.loop.Every(jobHourly, health.PeerInterval, d.Hourly)
 	d.loop.Debounced(jobHourlyNow, hourlyDelay, d.Hourly)
@@ -195,6 +198,7 @@ func (d *Daemon) Run(ctx context.Context, hup <-chan os.Signal) error {
 		}
 	}()
 	d.markStart(d.clock.Now())
+	d.warnDailyStatus()
 	// pinger.pub at once, and the keyrings a pubring_debounce after the
 	// start instead of at the next pubring_check_interval, so a new
 	// pinger's files are there within minutes.

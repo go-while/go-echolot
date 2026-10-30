@@ -1117,6 +1117,7 @@ Outputs:
 - `results/status.json` (machine-readable: `generated`, `pinger`, `version`, `state`, and each check's `name`, `state` and `detail`) and `status.txt`, both rewritten every tick. They are public, like the rest of `results_dir`: they hold counts, remailer addresses and the peers' fetch errors, but no local paths or yamn errors (those go to the log).
 - `go-echolot check` reads `status.json` and exits 0/1/2 (ok/warn/crit) for Nagios or cron. The first line is Nagios's summary (`GO-ECHOLOT WARNING - pending: …`); the whole status follows. It adds a `status_age` check, because a stopped or hung daemon stops rewriting the file: warn after 15 min (or 3 ticks), crit after 30 min (or 6 ticks). A missing or unreadable `status.json`, or a config `check` can't read, is crit. A `|` in a detail becomes `/`, since Nagios reads performance data after it.
 - `health.notify` mails the operator a digest when a check's state differs from the one last mailed about (ok if none was), at most 1 mail per 6 h per check. A check that changes again within the 6 h waits; once due, the mail has its state then, so a flap that settles back sends nothing. The mail lists the changed checks, then the whole status. The last mail per check is kept in memory and in `state.json` (`health.notified`), so a restart doesn't mail again, nor every tick when `state.json` can't be written (a full disk). A failed send is tried again after 30 min, not every tick, and each send gets at most 1 min of the job loop. Long details are wrapped in the mail, so no line comes near RFC 5322's 998. Health mails go out from `pinger.address` and count against `mail.max_per_hour`, but not as sends in `send_failures`.
+- `health.daily_status_mail` (`minute [hour]` in UTC, cron's first two fields; the hour is 03 if left out) also mails the whole status to `health.notify` once a day, whatever its state, so the operator knows the pinger still runs: change mails alone are silent for as long as all is well. It is sent by the health job, so within a tick of that time. The last one is kept in `state.json` (`health.daily_sent`): a restart doesn't send it again, a daemon that was down at that time sends it once it is back, and a new one waits for the next time after its start. A failed send is tried again after 30 min. Without `daily_status_mail` (or without `health.notify`) there is no daily mail, and the daemon logs a warning at the start and at each SIGHUP (`systemctl reload`).
 
 The July 8 – August 7 outage would have shown up in two ways:
 - the "no ping replies / no scan" checks, if the process was alive but mail was broken;
@@ -1199,6 +1200,7 @@ files = pubring.mix, type2.list, mlist2.txt
 
 [health]
 notify = remops@example.org
+daily_status_mail = 15 03   # minute [hour], UTC; hour 03 if left out; empty: no daily mail
 
 [peer mixmin]
 mlist2 = https://www.mixmin.net/yamn/mlist2.txt

@@ -487,6 +487,20 @@ func Digest(r *Report, due []Check) (subject string, body []byte) {
 	return subject, b.Bytes()
 }
 
+// Daily returns the daily status mail for r (health.daily_status_mail):
+// the subject and the body, the whole status.  started is when the
+// daemon started.
+func Daily(r *Report, started time.Time) (subject string, body []byte) {
+	subject = fmt.Sprintf("go-echolot daily status: %s (%s)", strings.ToUpper(r.State.String()), r.Pinger)
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "go-echolot %s, running since %s.\n", r.Version, started.UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "\nThe whole status (%s, generated %s):\n\n", strings.ToUpper(r.State.String()), r.Generated.UTC().Format(time.RFC3339))
+	for _, c := range r.Checks {
+		writeWrapped(&b, c)
+	}
+	return subject, b.Bytes()
+}
+
 // mailWidth is where writeWrapped breaks details.
 const mailWidth = 72
 
