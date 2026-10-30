@@ -54,6 +54,7 @@ const (
 	Dropped     Decision = "dropped"     // pending change or suggestion removed
 	Expired     Decision = "expired"     // key or conf removed by Expire
 	State       Decision = "state"       // remailer state changed by Expire
+	Replaced    Decision = "replaced"    // old key of an applied key change, once the new one is proven
 )
 
 // Result describes one decision, for the log and status.  It never holds

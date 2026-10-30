@@ -60,9 +60,31 @@ func TestResolvePendingKey(t *testing.T) {
 	if k := Publishable(rem, now.Add(25*time.Hour), true); k == nil || k.KeyID != "dd34d8b7f010229bb790a2402c9ffe65" {
 		t.Errorf("published %v before proof", k)
 	}
+	// the old key stays active, and is pinged, until the new one is proven
+	const oldID = "dd34d8b7f010229bb790a2402c9ffe65"
+	old := rem.Keys[oldID]
+	if res := ResolvePending(st, now.Add(25*time.Hour), cfg); hasResult(res, oldID, Replaced, "") || old.State != store.KeyStateActive || victor(st).Replaces != oldID {
+		t.Errorf("replaced before proof: %v %s %q", res, old.State, victor(st).Replaces)
+	}
 	SetProven(victor(st), now.Add(2*time.Hour))
 	if k := Publishable(rem, now.Add(25*time.Hour), true); k == nil || k.KeyID != victorNextID {
 		t.Errorf("published %v", k)
+	}
+	// proven: the old key is replaced, no longer pinged
+	if res := ResolvePending(st, now.Add(25*time.Hour), cfg); !hasResult(res, oldID, Replaced, "replaced by "+victorNextID) || old.State != store.KeyStateReplaced || victor(st).Replaces != "" {
+		t.Errorf("not replaced: %v %s %q", res, old.State, victor(st).Replaces)
+	}
+	for _, k := range Pingable(rem, now.Add(25*time.Hour), 5*24*time.Hour) {
+		if k.KeyID == oldID {
+			t.Error("the replaced key is still pinged")
+		}
+	}
+	if res := ResolvePending(st, now.Add(26*time.Hour), cfg); len(res) != 0 {
+		t.Errorf("replaced again: %v", res)
+	}
+	// listed again: the remailer still has it
+	if res := applyAt(st, "yamn@virebent.art", now.Add(3*time.Hour), now.Add(3*time.Hour), victorLine); !hasResult(res, oldID, Accepted, "replaced key listed again") || old.State != store.KeyStateActive {
+		t.Errorf("listed again: %v %s", res, old.State)
 	}
 
 	// a rejected or deleted key drops the change

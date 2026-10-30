@@ -167,6 +167,12 @@ func (r *reply) knownKey(k *store.Key, pk replies.ParsedKey) bool {
 	r.pin(pk.Nick)
 	r.seen(k)
 	k.Nick, k.Address, k.Version, k.Caps = pk.Nick, pk.Address, pk.Version, pk.Caps
+	if k.State == store.KeyStateReplaced {
+		// listed again: the remailer still has it
+		k.State = store.KeyStateActive
+		r.add(k.KeyID, Accepted, "replaced key listed again")
+		return true
+	}
 	if k.State == store.KeyStateQuarantined {
 		if activate(r.st, rem, k) {
 			r.add(k.KeyID, Accepted, "quarantine lifted")

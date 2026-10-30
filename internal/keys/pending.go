@@ -3,6 +3,7 @@ package keys
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -50,7 +51,8 @@ func removePending(st *store.State, i int) store.PendingChange {
 // least cfg.MinSightings replies, and the old key, nick or address wasn't
 // seen again since.  A nick longer than 12 characters, or one pinned to
 // another remailer, and an address that is already known, wait for the
-// operator.  Changes made stale by another change are dropped.
+// operator.  Changes made stale by another change are dropped.  Then the
+// old keys of applied key changes are retired (replaceOld).
 func ResolvePending(st *store.State, now time.Time, cfg config.Keys) []Result {
 	var res []Result
 	for i := 0; i < len(st.Pending); {
@@ -72,6 +74,30 @@ func ResolvePending(st *store.State, now time.Time, cfg config.Keys) []Result {
 		}
 		if d != "" {
 			res = append(res, r)
+		}
+	}
+	return append(res, replaceOld(st, cfg)...)
+}
+
+// replaceOld retires the old keys of applied key changes (Key.Replaces)
+// whose new key is active and proven (or proof isn't required): the
+// remailer stopped listing the old key, so pings to it would only be
+// lost.  Until then the old key stays published, so a forged key that
+// got through the quarantine but never answers a ping doesn't take the
+// remailer out of the keyring (§9.2).
+func replaceOld(st *store.State, cfg config.Keys) []Result {
+	var res []Result
+	for _, addr := range slices.Sorted(maps.Keys(st.Remailers)) {
+		rem := st.Remailers[addr]
+		for _, k := range sortedKeys(rem) {
+			if k.Replaces == "" || k.State != store.KeyStateActive || cfg.RequireProof && !Proven(k) {
+				continue
+			}
+			if old := rem.Keys[k.Replaces]; old != nil && (old.State == store.KeyStateActive || old.State == store.KeyStateQuarantined) {
+				old.State = store.KeyStateReplaced
+				res = append(res, Result{Address: rem.Address, KeyID: old.KeyID, Decision: Replaced, Reason: "replaced by " + k.KeyID})
+			}
+			k.Replaces = ""
 		}
 	}
 	return res
@@ -141,6 +167,9 @@ func applyChange(st *store.State, pc store.PendingChange) string {
 		}
 		if k.State == store.KeyStateRejected {
 			k.State = store.KeyStateQuarantined
+		}
+		if pc.Old != pc.New {
+			k.Replaces = pc.Old // done in replaceOld once k is proven
 		}
 		if !activate(st, rem, k) {
 			return "key " + pc.New + " still waits for a nick change"
