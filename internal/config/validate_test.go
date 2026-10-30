@@ -152,6 +152,8 @@ func TestValidateErrors(t *testing.T) {
 		{func(c *Config) { c.Signing.Enabled, c.Schedule.PubringCheckInterval = true, 2*time.Hour }, "schedule.pubring_check_interval must be at most 1h0m0s when signing"},
 
 		{func(c *Config) { c.Health.Notify = "remops" }, "health.notify must be a plain address"},
+		{func(c *Config) { c.Health.DailyStatusMail = "15 24" }, `health.daily_status_mail: hour "24" must be 0 to 23`},
+		{func(c *Config) { c.Health.DailyStatusMail = "1 2 3" }, `health.daily_status_mail must be "minute [hour]"`},
 
 		{func(c *Config) { c.Peers = []Peer{{Name: "Mixmin", Mlist2: "https://x.example/m"}} }, "[peer Mixmin]: the name may use"},
 		{func(c *Config) { c.Peers = []Peer{{Name: strings.Repeat("a", 33), Mlist2: "https://x.example/m"}} }, "up to 32 characters"},
@@ -187,5 +189,34 @@ func TestValidateAll(t *testing.T) {
 	err := c.Validate()
 	if n := strings.Count(err.Error(), "\n") + 1; n != 3 {
 		t.Errorf("got %d errors, want 3:\n%v", n, err)
+	}
+}
+
+func TestDailyStatus(t *testing.T) {
+	for _, c := range []struct {
+		in  string
+		at  time.Duration
+		ok  bool
+		err string
+	}{
+		{"", 0, false, ""},
+		{"   ", 0, false, ""},
+		{"15", 3*time.Hour + 15*time.Minute, true, ""},
+		{"15 03", 3*time.Hour + 15*time.Minute, true, ""},
+		{"0 0", 0, true, ""},
+		{"59 23", 23*time.Hour + 59*time.Minute, true, ""},
+		{"05 7", 7*time.Hour + 5*time.Minute, true, ""},
+		{"60", 0, false, `minute "60" must be 0 to 59`},
+		{"15 24", 0, false, `hour "24" must be 0 to 23`},
+		{"*", 0, false, `minute "*"`},
+		{"15 *", 0, false, `hour "*"`},
+		{"-1", 0, false, `minute "-1"`},
+		{"015", 0, false, `minute "015"`},
+		{"1 2 3", 0, false, `must be "minute [hour]"`},
+	} {
+		at, ok, err := Health{DailyStatusMail: c.in}.DailyStatus()
+		if at != c.at || ok != c.ok || (err == nil) != (c.err == "") || err != nil && !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%q: %s %v %v, want %s %v %q", c.in, at, ok, err, c.at, c.ok, c.err)
+		}
 	}
 }

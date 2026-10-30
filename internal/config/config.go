@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -135,6 +137,50 @@ type Signing struct {
 // Health is the self-monitoring (design §10.2).
 type Health struct {
 	Notify string `ini:"notify"` // operator address for health mails; "" = none
+	// DailyStatusMail is when the daily status mail goes to Notify, in
+	// UTC, as cron's first two fields: "minute [hour]", the hour 3 if
+	// left out; "" = no daily mail (DailyStatus).
+	DailyStatusMail string `ini:"daily_status_mail"`
+}
+
+// DefaultDailyStatusHour is the hour of the daily status mail when
+// daily_status_mail gives only the minute.
+const DefaultDailyStatusHour = 3
+
+// DailyStatus returns the time of day (UTC) of the daily status mail
+// from DailyStatusMail; ok is false when it is unset.
+func (h Health) DailyStatus() (at time.Duration, ok bool, err error) {
+	f := strings.Fields(h.DailyStatusMail)
+	if len(f) == 0 {
+		return 0, false, nil
+	}
+	if len(f) > 2 {
+		return 0, false, fmt.Errorf("health.daily_status_mail must be \"minute [hour]\" like \"15 03\", not %q", h.DailyStatusMail)
+	}
+	minute, err := clockField(f[0], 59)
+	if err != nil {
+		return 0, false, fmt.Errorf("health.daily_status_mail: minute %q must be 0 to 59", f[0])
+	}
+	hour := DefaultDailyStatusHour
+	if len(f) == 2 {
+		if hour, err = clockField(f[1], 23); err != nil {
+			return 0, false, fmt.Errorf("health.daily_status_mail: hour %q must be 0 to 23", f[1])
+		}
+	}
+	return time.Duration(hour)*time.Hour + time.Duration(minute)*time.Minute, true, nil
+}
+
+// clockField parses a number from 0 to max, digits only (cron's * and
+// lists aren't taken).
+func clockField(s string, max int) (int, error) {
+	if s == "" || len(s) > 2 || strings.Trim(s, "0123456789") != "" {
+		return 0, fmt.Errorf("not a number")
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n > max {
+		return 0, fmt.Errorf("out of range")
+	}
+	return n, nil
 }
 
 // Peer is another pinger whose mlist2.txt is checked for staleness, and

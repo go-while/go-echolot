@@ -108,6 +108,9 @@ func (c *Config) Validate() error {
 
 	check(c.Health.Notify == "" || isBareAddress(c.Health.Notify),
 		"health.notify must be a plain address like remops@example.org, not %q", c.Health.Notify)
+	if _, _, err := c.Health.DailyStatus(); err != nil {
+		errs = append(errs, err)
+	}
 
 	for i, peer := range c.Peers {
 		check(isPeerName(peer.Name), "[peer %s]: the name may use a-z, 0-9, '.', '_' and '-', up to 32 characters", peer.Name)
