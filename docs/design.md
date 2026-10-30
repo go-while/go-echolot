@@ -840,7 +840,8 @@ Rejections are logged with a reason and kept in the thesaurus.
 - the old key stays published;
 - the operator is notified (log, `status.json`, optional mail);
 - the change is applied after `keys.quarantine` (24 h) **if** the new key was seen in ≥ 2 independent replies (distinct tokens ≥ 30 min apart) *and* the old key wasn't seen again in that period;
-- `approve`/`reject` override this.
+- `approve`/`reject` override this;
+- once applied and the new key is proven (below), the old key becomes `replaced`: no longer pinged or published. The remailer stopped listing it, a condition of the change, so pings to it would only be lost and count against the remailer, about half the pings to it for the 5 days of `keys.retention`. Until the new key is proven the old one stays active and published, so a forged key that got through the quarantine but never answers a ping doesn't take the remailer out of the keyring. A key reply that lists the replaced key again makes it active again. A normal rotation doesn't replace anything: the remailer still lists the old key until it expires.
 
 A remailer that really lost its secring therefore becomes usable again after ≤ 24 h, or immediately with approval. A one-off forged or injected reply never reaches clients.
 

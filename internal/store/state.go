@@ -31,6 +31,9 @@ const (
 	KeyStateActive      = "active"
 	KeyStateQuarantined = "quarantined"
 	KeyStateRejected    = "rejected"
+	// KeyStateReplaced: the old key of an applied key change.  The
+	// remailer no longer lists it, so it isn't pinged or published.
+	KeyStateReplaced = "replaced"
 )
 
 // Kinds of quarantined change (PendingChange.Kind).
@@ -148,6 +151,9 @@ type Key struct {
 	SightedAt    time.Time  `json:"sighted_at,omitempty"` // token time of the last counted sighting; zero in old state
 	ProvenAt     time.Time  `json:"proven_at"`            // first returned ping to this key; zero = not yet (§9.2)
 	State        string     `json:"state"`
+	// Replaces is the old key of an applied key change: it becomes
+	// KeyStateReplaced once this key is proven (keys.ResolvePending).
+	Replaces string `json:"replaces,omitempty"`
 }
 
 // PublicKey is a yamn public key.  It is hex in state.json.
