@@ -59,7 +59,7 @@ A pinger:
 
 ## Building
 
-Go 1.27.3 or later:
+Go 1.27.4 or later:
 
 ```sh
 go build ./cmd/go-echolot
