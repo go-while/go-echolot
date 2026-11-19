@@ -1,6 +1,6 @@
 module github.com/go-while/go-echolot
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/dchest/blake2s v1.0.0

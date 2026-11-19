@@ -9,7 +9,7 @@
 #   /var/lib/go-echolot          paths.state_dir: state, Maildir, results
 # and mail.method = smtp, since the image has no sendmail.
 
-ARG GO_IMAGE=docker.io/library/golang:1.27.3
+ARG GO_IMAGE=docker.io/library/golang:1.27.4
 
 # yamn is a separate program, not a Go dependency (design §3): build it
 # from a fixed commit of go-while/yamn.  f1a0b1f has PR #72 (signature
